@@ -152,7 +152,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 *
 		 * @return true|WP_Error True on success, WP_Error on failure.
 		 */
-		private function validate_speedy_credentials( string $username, string $password ) {
+		private function validate_speedy_credentials( string $username, string $password ): bool|WP_Error {
 			$body = wp_json_encode( [
 				'userName' => $username,
 				'password' => $password,
@@ -220,7 +220,21 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * @param string $value
 		 * @return string
 		 */
-		public function validate_sender_city_field( $key, $value ) {
+		public function validate_sender_city_field( $key, $value ): string {
+			return sanitize_text_field( $value );
+		}
+
+		/**
+		 * Validate the sender_office field.
+		 *
+		 * Since the options are loaded via AJAX, the standard validation (checking against keys) fails.
+		 * We simply return the value (sanitized).
+		 *
+		 * @param string $key
+		 * @param string $value
+		 * @return string
+		 */
+		public function validate_sender_office_field( $key, $value ) {
 			return sanitize_text_field( $value );
 		}
 
@@ -286,6 +300,15 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				}
 			}
 
+			$current_office = $this->get_instance_option( 'sender_office' );
+			$field_key_office = $this->get_field_key( 'sender_office' );
+			if ( isset( $_POST[ $field_key_office ] ) ) {
+				$posted_office = sanitize_text_field( $_POST[ $field_key_office ] );
+				if ( $posted_office ) {
+					$current_office = $posted_office;
+				}
+			}
+
 			$authenticated = [
 
 				// --- SECTION: SENDER DETAILS ---
@@ -330,7 +353,11 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				'sender_office' => [
 					'title'   => __( 'Shipping from Office', 'speedy-modern' ),
 					'type'    => 'select',
-					'options' => $this->get_speedy_offices(),
+					'class'   => 'speedy-office-search',
+					'options' => [ $current_office => speedy_modern_get_office_label_by_id( $current_office ) ],
+					'custom_attributes' => [
+						'data-placeholder' => __( 'Search for an office...', 'speedy-modern' ),
+					],
 				],
 				'sender_time' => [
 					'title'       => __( 'Working Day End Time', 'speedy-modern' ),
@@ -674,32 +701,84 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		/**
 		 * Fetch available Speedy offices from API and sort them alphabetically
 		 *
+		 * @param string|null $username
+		 * @param string|null $password
+		 * @param string|null $term
 		 * @return array Associative array of [officeId => "Name - Address"]
 		 */
-		private function get_speedy_offices(): array {
-			$cache_key = 'speedy_offices_cache_' . md5( $this->get_option( 'speedy_username' ) );
-			$offices   = get_transient( $cache_key );
-
-			// If cache exists, return it immediately
-			if ( false !== $offices ) {
-				return $offices;
-			}
-
+		public static function get_speedy_offices( $username = null, $password = null, $term = null ): array {
 			$offices = [ '0' => __( '-- Select Office --', 'speedy-modern' ) ];
 
-			$username = $this->get_option( 'speedy_username' );
-			$password = $this->get_option( 'speedy_password' );
+			// Try to fetch from local DB first
+			global $wpdb;
+			$table_name = $wpdb->prefix . 'speedy_offices';
+
+			// Check if table exists and has data
+			if ( $wpdb->get_var( "SHOW TABLES LIKE '$table_name'" ) === $table_name ) {
+				$query = "SELECT id, name, address FROM $table_name";
+				$args = [];
+
+				if ( $term ) {
+					$like_term = '%' . $wpdb->esc_like( $term ) . '%';
+					$query .= " WHERE name LIKE %s OR address LIKE %s";
+					$args[] = $like_term;
+					$args[] = $like_term;
+				}
+
+				$query .= " ORDER BY name ASC LIMIT 50";
+
+				if ( ! empty( $args ) ) {
+					$db_offices = $wpdb->get_results( $wpdb->prepare( $query, $args ) );
+				} else {
+					$db_offices = $wpdb->get_results( $query );
+				}
+
+				if ( ! empty( $db_offices ) ) {
+					foreach ( $db_offices as $office ) {
+						$offices[ $office->id ] = sprintf( '%s %s - %s', $office->id, $office->name, $office->address );
+					}
+					return $offices;
+				}
+			}
+
+			// Fallback to API if DB is empty or no results found
+
+			// If credentials are not provided, try to find them
+			if ( ! $username || ! $password ) {
+				$option_like = 'woocommerce_speedy_modern_%_settings';
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				$rows = $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 1",
+						$option_like
+					)
+				);
+
+				if ( $rows ) {
+					$settings = maybe_unserialize( $rows[0]->option_value );
+					if ( is_array( $settings ) ) {
+						$username = $settings['speedy_username'] ?? '';
+						$password = $settings['speedy_password'] ?? '';
+					}
+				}
+			}
 
 			if ( ! $username || ! $password ) {
 				return $offices;
 			}
 
 			// Prepare API data (Country ID 100 is Bulgaria)
-			$body = json_encode( [
+			$body_data = [
 				'userName'  => $username,
 				'password'  => $password,
 				'countryId' => 100,
-			] );
+			];
+
+			if ( $term ) {
+				$body_data['name'] = $term;
+			}
+
+			$body = json_encode( $body_data );
 
 			$ch = curl_init( 'https://api.speedy.bg/v1/location/office' );
 			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
@@ -745,9 +824,6 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				foreach ( $temp_offices as $id => $office_data ) {
 					$offices[ $id ] = $office_data['label'];
 				}
-
-				// Cache for 24 hours
-				set_transient( $cache_key, $offices, DAY_IN_SECONDS );
 			}
 
 			return $offices;
@@ -894,6 +970,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * Calculate the shipping rate
 		 */
 		public function calculate_shipping( $package = array() ): void {
+			/*
 			// Only calculate the rate if enabled in settings
 			if ( 'yes' !== $this->get_option( 'enabled' ) ) {
 				return;
@@ -944,6 +1021,13 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					$this->add_rate( $rate );
 				}
 			}
+			*/
+
+			$this->add_rate( array(
+				'id'    => $this->id,
+				'label' => $this->title,
+				'cost'  => 5,
+			) );
 		}
 
 		/**

@@ -330,6 +330,39 @@
 			});
 		}
 
+		var $officeSearch = $( '.speedy-office-search' );
+		
+		// Filter for modal context to avoid duplicates
+		if ( $officeSearch.length > 1 ) {
+			$officeSearch = $officeSearch.filter(function() {
+				return $(this).closest('.wc-backbone-modal-content').length > 0;
+			});
+		}
+
+		if ( $officeSearch.length ) {
+			$officeSearch.select2({
+				width: '100%',
+				placeholder: $officeSearch.data('placeholder') || 'Search...',
+				allowClear: true,
+				ajax: {
+					url: ajaxurl,
+					dataType: 'json',
+					delay: 250,
+					data: function (params) {
+						return {
+							action: 'speedy_modern_search_offices',
+							term: params.term
+						};
+					},
+					processResults: function (data) {
+						return data;
+					},
+					cache: true
+				},
+				minimumInputLength: 3
+			});
+		}
+
 	});
 
 })( jQuery );

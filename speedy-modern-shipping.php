@@ -45,7 +45,7 @@ define( 'SPEEDY_MODERN_URL',  plugin_dir_url( __FILE__ ) );
  * Load Dependencies
  */
 add_action( 'plugins_loaded', 'speedy_modern_load_dependencies' );
-function speedy_modern_load_dependencies() {
+function speedy_modern_load_dependencies(): void {
 	require_once SPEEDY_MODERN_PATH . 'class-speedy-modern-method.php';
 	require_once SPEEDY_MODERN_PATH . 'includes/class-speedy-modern-syncer.php';
 }
@@ -130,15 +130,32 @@ function speedy_modern_enqueue_scripts(): void {
 		wp_enqueue_script(
 			'speedy-modern-checkout',
 			SPEEDY_MODERN_URL . 'assets/js/checkout.js',
-			array( 'jquery' ),
+			array( 'jquery', 'select2' ),
 			'1.0.0',
 			true
+		);
+
+		wp_enqueue_style(
+			'speedy-modern-checkout',
+			SPEEDY_MODERN_URL . 'assets/css/checkout.css',
+			array(),
+			'1.0.0'
 		);
 
 		// Pass PHP data to JS (like AJAX URL or carrier IDs)
 		wp_localize_script( 'speedy-modern-checkout', 'speedy_params', array(
 			'ajax_url'  => admin_url( 'admin-ajax.php' ),
-			'method_id' => 'speedy_modern'
+			'method_id' => 'speedy_modern',
+			'i18n'      => array(
+				'to_address' => __( 'To Address', 'speedy-modern' ),
+				'to_office'  => __( 'To Office', 'speedy-modern' ),
+				'to_automat' => __( 'To Automat', 'speedy-modern' ),
+				'select_office' => __( 'Select Office', 'speedy-modern' ),
+				'select_automat' => __( 'Select Automat', 'speedy-modern' ),
+				'select_from_map' => __( 'Select from Map', 'speedy-modern' ),
+				'select_city' => __( 'Select a city...', 'speedy-modern' ),
+				'alert_select_city' => __( 'Please select a city first.', 'speedy-modern' ),
+			)
 		));
 	}
 }
@@ -172,7 +189,7 @@ function speedy_modern_enqueue_admin_scripts( $hook ): void {
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery
 	$rows = $wpdb->get_results(
 		$wpdb->prepare(
-			"SELECT option_value FROM {$wpdb->options} WHERE option_name LIKE %s LIMIT 10",
+			"SELECT option_value FROM $wpdb->options WHERE option_name LIKE %s LIMIT 10",
 			$option_like
 		)
 	);
@@ -221,9 +238,10 @@ add_action( 'speedy_modern_sync_locations_event', array( 'Speedy_Modern_Syncer',
  * Get city name by its ID from our local database.
  *
  * @param int $city_id The Speedy city ID.
- * @return string The city name or an empty string if not found.
+ *
+ * @return int|string The city name or an empty string if not found.
  */
-function speedy_modern_get_city_name_by_id( $city_id ) {
+function speedy_modern_get_city_name_by_id( int $city_id ): int|string {
 	if ( ! $city_id ) {
 		return '';
 	}
@@ -233,13 +251,42 @@ function speedy_modern_get_city_name_by_id( $city_id ) {
 	
 	$city_name = $wpdb->get_var(
 		$wpdb->prepare(
-			"SELECT name FROM {$table_name} WHERE id = %d",
+			"SELECT name FROM $table_name WHERE id = %d",
 			$city_id
 		)
 	);
 
 	// Fallback: If name is not found (e.g. sync hasn't run), return the ID so the field isn't blank.
-	return $city_name ? $city_name : $city_id;
+	return $city_name ?: $city_id;
+}
+
+/**
+ * Get office label by its ID from our local database.
+ *
+ * @param int $office_id The Speedy office ID.
+ *
+ * @return int|string The office label (Name - Address) or ID if not found.
+ */
+function speedy_modern_get_office_label_by_id( int $office_id ): int|string {
+	if ( ! $office_id ) {
+		return '';
+	}
+
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'speedy_offices';
+	
+	$office = $wpdb->get_row(
+		$wpdb->prepare(
+			"SELECT name, address FROM $table_name WHERE id = %d",
+			$office_id
+		)
+	);
+
+	if ( $office ) {
+		return sprintf( '%s %s - %s', $office_id, $office->name, $office->address );
+	}
+
+	return $office_id;
 }
 
 /**
@@ -247,7 +294,7 @@ function speedy_modern_get_city_name_by_id( $city_id ) {
  * Used by Select2 in admin settings.
  */
 add_action( 'wp_ajax_speedy_modern_search_cities', 'speedy_modern_search_cities' );
-function speedy_modern_search_cities() {
+function speedy_modern_search_cities(): void {
 	// Check permissions
 	if ( ! current_user_can( 'manage_woocommerce' ) ) {
 		wp_send_json_error( 'Permission denied' );
@@ -327,6 +374,45 @@ function speedy_modern_search_cities() {
 }
 
 /**
+ * AJAX Handler for searching offices via local DB with API fallback.
+ * Used by Select2 in admin settings.
+ */
+add_action( 'wp_ajax_speedy_modern_search_offices', 'speedy_modern_search_offices' );
+function speedy_modern_search_offices() {
+	// Check permissions
+	if ( ! current_user_can( 'manage_woocommerce' ) ) {
+		wp_send_json_error( 'Permission denied' );
+	}
+
+	$term = isset( $_GET['term'] ) ? sanitize_text_field( $_GET['term'] ) : '';
+	if ( empty( $term ) ) {
+		wp_send_json_success( [] );
+	}
+
+	// Use the static method from the shipping class which handles DB check + API fallback
+	if ( class_exists( 'WC_Speedy_Modern_Method' ) ) {
+		$offices = WC_Speedy_Modern_Method::get_speedy_offices( null, null, $term );
+		
+		$results = [];
+		if ( ! empty( $offices ) ) {
+			foreach ( $offices as $id => $label ) {
+				// Skip the default placeholder if present
+				if ( $id == 0 ) continue;
+				
+				$results[] = [
+					'id'   => $id,
+					'text' => $label
+				];
+			}
+		}
+		
+		wp_send_json( [ 'results' => $results ] );
+	} else {
+		wp_send_json_error( 'Class WC_Speedy_Modern_Method not found.' );
+	}
+}
+
+/**
  * AJAX Handler for file uploads in admin settings.
  */
 add_action( 'wp_ajax_speedy_modern_upload_file', 'speedy_modern_upload_file' );
@@ -377,5 +463,261 @@ function speedy_modern_upload_file() {
 		] );
 	} else {
 		wp_send_json_error( 'Failed to move uploaded file.' );
+	}
+}
+
+/**
+ * Helper: Transliterate Latin to Cyrillic (Bulgarian standard)
+ */
+function speedy_modern_transliterate_latin_to_cyrillic( $text ) {
+	$map = [
+		'A' => 'А', 'B' => 'Б', 'V' => 'В', 'G' => 'Г', 'D' => 'Д', 'E' => 'Е', 'Z' => 'З', 'I' => 'И', 'J' => 'Й', 'K' => 'К', 'L' => 'Л', 'M' => 'М', 'N' => 'Н', 'O' => 'О', 'P' => 'П', 'R' => 'Р', 'S' => 'С', 'T' => 'Т', 'U' => 'У', 'F' => 'Ф', 'H' => 'Х', 'C' => 'Ц',
+		'a' => 'а', 'b' => 'б', 'v' => 'в', 'g' => 'г', 'd' => 'д', 'e' => 'е', 'z' => 'з', 'i' => 'и', 'j' => 'й', 'k' => 'к', 'l' => 'л', 'm' => 'м', 'n' => 'н', 'o' => 'о', 'p' => 'п', 'r' => 'р', 's' => 'с', 't' => 'т', 'u' => 'у', 'f' => 'ф', 'h' => 'х', 'c' => 'ц',
+		// Multi-character mappings (order matters!)
+		'Sht' => 'Щ', 'sht' => 'щ', 'Sh' => 'Ш', 'sh' => 'ш', 'Ch' => 'Ч', 'ch' => 'ч', 'Yu' => 'Ю', 'yu' => 'ю', 'Ya' => 'Я', 'ya' => 'я', 'Zh' => 'Ж', 'zh' => 'ж', 'Ts' => 'Ц', 'ts' => 'ц',
+		'Y' => 'Й', 'y' => 'й', 'X' => 'Х', 'x' => 'х', 'W' => 'В', 'w' => 'в', 'Q' => 'Я', 'q'=> 'я'
+	];
+
+	return strtr( $text, $map );
+}
+
+/**
+ * Helper: Get Region Map (WC Code => Speedy Name)
+ */
+function speedy_modern_get_region_map() {
+	return [
+		'BG-01' => 'Благоевград',
+		'BG-02' => 'Бургас',
+		'BG-03' => 'Варна',
+		'BG-04' => 'Велико Търново',
+		'BG-05' => 'Видин',
+		'BG-06' => 'Враца',
+		'BG-07' => 'Габрово',
+		'BG-08' => 'Добрич',
+		'BG-09' => 'Кърджали',
+		'BG-10' => 'Кюстендил',
+		'BG-11' => 'Ловеч',
+		'BG-12' => 'Монтана',
+		'BG-13' => 'Пазарджик',
+		'BG-14' => 'Перник',
+		'BG-15' => 'Плевен',
+		'BG-16' => 'Пловдив',
+		'BG-17' => 'Разград',
+		'BG-18' => 'Русе',
+		'BG-19' => 'Силистра',
+		'BG-20' => 'Сливен',
+		'BG-21' => 'Смолян',
+		'BG-22' => 'София (столица)', // Sofia City
+		'BG-23' => 'София',           // Sofia Province
+		'BG-24' => 'Стара Загора',
+		'BG-25' => 'Търговище',
+		'BG-26' => 'Хасково',
+		'BG-27' => 'Шумен',
+		'BG-28' => 'Ямбол',
+	];
+}
+
+/**
+ * AJAX Handler: Get cities for a specific region.
+ * Used by checkout.js
+ */
+add_action( 'wp_ajax_speedy_get_cities', 'speedy_modern_get_cities_ajax' );
+add_action( 'wp_ajax_nopriv_speedy_get_cities', 'speedy_modern_get_cities_ajax' );
+
+function speedy_modern_get_cities_ajax() {
+	$region_code = isset( $_POST['region'] ) ? sanitize_text_field( $_POST['region'] ) : '';
+	
+	if ( empty( $region_code ) ) {
+		wp_send_json_error( 'Missing region code' );
+	}
+
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'speedy_cities';
+	$query = '';
+	$args = [];
+
+	// Use helper function for mapping
+	$region_map = speedy_modern_get_region_map();
+	$region_name = $region_map[ $region_code ] ?? '';
+
+	if ( empty( $region_name ) ) {
+		wp_send_json_error( 'Unknown region code' );
+	}
+
+	// Exact match for Sofia regions, LIKE for others
+	if ( 'BG-22' === $region_code || 'BG-23' === $region_code ) {
+		$query = "SELECT id, name, post_code, type FROM $table_name WHERE region = %s";
+		$args[] = $region_name;
+	} else {
+		$query = "SELECT id, name, post_code, type FROM $table_name WHERE region LIKE %s";
+		$args[] = '%' . $wpdb->esc_like( $region_name ) . '%';
+	}
+
+	// Add ordering
+	$query .= " ORDER BY CASE WHEN type = 'гр.' THEN 1 ELSE 2 END, name ASC";
+	
+	$cities = $wpdb->get_results( $wpdb->prepare( $query, $args ) );
+
+	$data = [];
+	foreach ( $cities as $city ) {
+		$data[] = [
+			'id'       => $city->id,
+			'name'     => $city->type . ' ' . $city->name, // Prepend type
+			'postcode' => $city->post_code
+		];
+	}
+
+	wp_send_json_success( $data );
+}
+
+/**
+ * AJAX Handler: Check availability of offices/automats in a city.
+ * Used by checkout.js
+ */
+add_action( 'wp_ajax_speedy_check_availability', 'speedy_modern_check_availability_ajax' );
+add_action( 'wp_ajax_nopriv_speedy_check_availability', 'speedy_modern_check_availability_ajax' );
+
+function speedy_modern_check_availability_ajax() {
+	$city_id = isset( $_POST['city_id'] ) ? absint( $_POST['city_id'] ) : 0;
+
+	if ( ! $city_id ) {
+		wp_send_json_error( 'Missing city ID' );
+	}
+
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'speedy_offices';
+
+	// Fetch all offices/automats for this city
+	$results = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT id, name, address, office_type FROM $table_name WHERE city_id = %d ORDER BY name ASC",
+			$city_id
+		)
+	);
+
+	$offices = [];
+	$automats = [];
+
+	foreach ( $results as $row ) {
+		$item = [
+			'id'    => $row->id,
+			'label' => sprintf( '%s %s - %s', $row->id, $row->name, $row->address )
+		];
+
+		// Speedy types: 
+		// APT = Automat (APS)
+		// OFFICE = Standard Office
+		// We need to check the exact type codes Speedy uses. 
+		// Usually 'APT' or 'APS' is automat.
+		
+		if ( stripos( $row->office_type, 'APT' ) !== false || stripos( $row->office_type, 'APS' ) !== false ) {
+			$automats[] = $item;
+		} else {
+			$offices[] = $item;
+		}
+	}
+
+	wp_send_json_success( [
+		'has_office'  => ! empty( $offices ),
+		'has_automat' => ! empty( $automats ),
+		'offices'     => $offices,
+		'automats'    => $automats
+	] );
+}
+
+/**
+ * AJAX Handler: Get region code by city ID.
+ * Used when selecting an office from the map in a different city.
+ */
+add_action( 'wp_ajax_speedy_get_region_by_city', 'speedy_modern_get_region_by_city_ajax' );
+add_action( 'wp_ajax_nopriv_speedy_get_region_by_city', 'speedy_modern_get_region_by_city_ajax' );
+
+function speedy_modern_get_region_by_city_ajax() {
+	$city_id = isset( $_POST['city_id'] ) ? absint( $_POST['city_id'] ) : 0;
+
+	if ( ! $city_id ) {
+		wp_send_json_error( 'Missing city ID' );
+	}
+
+	global $wpdb;
+	$table_name = $wpdb->prefix . 'speedy_cities';
+
+	$region_name = $wpdb->get_var(
+		$wpdb->prepare(
+			"SELECT region FROM $table_name WHERE id = %d",
+			$city_id
+		)
+	);
+
+	if ( ! $region_name ) {
+		wp_send_json_error( 'City not found' );
+	}
+
+	// Use helper function and flip it for reverse mapping
+	$region_map = speedy_modern_get_region_map();
+	$reverse_map = array_flip( $region_map );
+
+	// Handle fuzzy matching if exact match fails (e.g. "Област София" vs "София")
+	$region_code = $reverse_map[ $region_name ] ?? '';
+
+	if ( ! $region_code ) {
+		// Try to find partial match
+		foreach ( $reverse_map as $name => $code ) {
+			if ( mb_stripos( $region_name, $name ) !== false ) {
+				$region_code = $code;
+				break;
+			}
+		}
+	}
+
+	if ( $region_code ) {
+		wp_send_json_success( [ 'region' => $region_code ] );
+	} else {
+		wp_send_json_error( 'Region mapping not found for: ' . $region_name );
+	}
+}
+
+/**
+ * Validate Checkout Fields
+ * Ensures an office is selected if the user chose "To Office" or "To Automat".
+ */
+add_action( 'woocommerce_checkout_process', 'speedy_modern_validate_checkout' );
+function speedy_modern_validate_checkout() {
+	// Check if Speedy Modern is the selected shipping method
+	$chosen_methods = WC()->session->get( 'chosen_shipping_methods' );
+	$chosen_shipping = $chosen_methods[0] ?? '';
+
+	if ( strpos( $chosen_shipping, 'speedy_modern' ) === false ) {
+		return;
+	}
+
+	// Check delivery type
+	$delivery_type = isset( $_POST['speedy_delivery_type'] ) ? sanitize_text_field( $_POST['speedy_delivery_type'] ) : 'address';
+
+	if ( 'office' === $delivery_type || 'automat' === $delivery_type ) {
+		$office_id = isset( $_POST['speedy_office_id'] ) ? sanitize_text_field( $_POST['speedy_office_id'] ) : '';
+
+		if ( empty( $office_id ) ) {
+			$error_msg = ( 'office' === $delivery_type ) 
+				? __( 'Please select a Speedy office.', 'speedy-modern' ) 
+				: __( 'Please select a Speedy automat.', 'speedy-modern' );
+			
+			wc_add_notice( $error_msg, 'error' );
+		}
+	}
+}
+
+/**
+ * Save Order Meta
+ * Saves the selected office ID and delivery type to the order.
+ */
+add_action( 'woocommerce_checkout_update_order_meta', 'speedy_modern_save_order_meta' );
+function speedy_modern_save_order_meta( $order_id ) {
+	if ( ! empty( $_POST['speedy_delivery_type'] ) ) {
+		update_post_meta( $order_id, '_speedy_delivery_type', sanitize_text_field( $_POST['speedy_delivery_type'] ) );
+	}
+
+	if ( ! empty( $_POST['speedy_office_id'] ) ) {
+		update_post_meta( $order_id, '_speedy_office_id', sanitize_text_field( $_POST['speedy_office_id'] ) );
 	}
 }
