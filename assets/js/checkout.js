@@ -1,4 +1,6 @@
 /* global speedy_params */
+// noinspection CssInvalidHtmlTagReference
+
 /**
  * @global speedy_params
  * @type {object}
@@ -42,13 +44,20 @@
         const speedyMethodId = params.method_id; // 'speedy_modern'
         let isSpeedyActive = false;
         
-        // State persistence across AJAX updates
-        let lastDeliveryType = 'address';
-        let lastOfficeId = '';
+        // State persistence across AJAX updates.
+        // Initialize from server params (session data set by cart page).
+        let lastDeliveryType = params.current_type || 'address';
+        let lastOfficeId = params.current_office_id ? String(params.current_office_id) : '';
 
-        // Guard flag: true while restoring Speedy UI after a WooCommerce
-        // checkout AJAX refresh. Prevents update_checkout → updated_checkout loops.
-        let restoringState = false;
+        // Cache to avoid redundant AJAX calls.
+        let cachedState = '';
+        let cachedCities = null;
+        let cachedCityId = '';
+        let cachedAvailability = null;
+
+        // True while we are inside setupSpeedyUI — prevents update_checkout
+        // that our own code triggers from causing a re-entrant loop.
+        let settingUp = false;
 
         // Modal references (assigned when modal HTML is injected)
         let $speedyMapModal = null;
@@ -90,52 +99,60 @@
             checkShippingMethod();
         });
 
-        // Capture state BEFORE update
+        // Capture state BEFORE WC destroys the DOM
         $(document.body).on('update_checkout', function() {
-            if (isSpeedyActive) {
+            if (isSpeedyActive && !settingUp) {
                 const type = $('input[name="speedy_delivery_type"]:checked').val();
                 if (type) lastDeliveryType = type;
                 
-                const office = $('#speedy_office_id').val();
-                if (office) lastOfficeId = office;
+                // Only capture office if the user explicitly selected one
+                // (the change handler sets lastOfficeId directly, so we just
+                // preserve whatever value it already has — don't read from DOM
+                // because select2 may report a stale or auto-selected value).
+
+                // Save current city id from the dropdown
+                const cityVal = $('#' + currentContext + '_city').val();
+                if (cityVal) cachedCityId = cityVal;
             }
+            // Unbind state handler to prevent WC DOM teardown from triggering it
+            $('body').off('change.speedy');
         });
 
-        // Listen for WooCommerce checkout updates (Page load / AJAX refresh)
+        // ===== SINGLE ENTRY POINT: updated_checkout =====
+        // WooCommerce fires this after every checkout AJAX refresh,
+        // including the initial one on page load. This is where we
+        // set up or restore the Speedy UI — never from document.ready.
         $(document.body).on('updated_checkout', function() {
-            // Only re-capture originals when Speedy is NOT active,
-            // otherwise we'd capture the Speedy-modified fields (select2 city etc.)
-            // as "originals" and could never restore the real text inputs.
-            if (!isSpeedyActive) {
-                captureOriginals('billing');
-                captureOriginals('shipping');
-            }
+            if (settingUp) return; // guard against re-entrance
 
-            // Determine context based on checkbox state
             updateContext();
 
-            // Check if form was replaced (check current context city field)
-            // If it's not a select2, it means the form was refreshed
-            if (!$('#' + currentContext + '_city').hasClass('select2-hidden-accessible')) {
-                isSpeedyActive = false; 
+            const selectedMethod = $('input[name^="shipping_method"]:checked').val();
+            const speedySelected = selectedMethod && selectedMethod.indexOf(speedyMethodId) !== -1;
+
+            if (!speedySelected) {
+                if (!isSpeedyActive) {
+                    captureOriginals('billing');
+                    captureOriginals('shipping');
+                }
+                if (isSpeedyActive) {
+                    deactivateSpeedy();
+                }
+                return;
             }
 
-            // Guard: while restoring UI after AJAX refresh, don't trigger another update_checkout.
-            // This flag is set before checkShippingMethod and cleared AFTER the async
-            // city-loading AJAX completes (inside handleCityChange success callback).
-            restoringState = true;
-            checkShippingMethod();
-            // Note: restoringState is cleared inside handleCityChange's AJAX success,
-            // or immediately below if Speedy was already active / no AJAX needed.
-            if (isSpeedyActive && $('#' + currentContext + '_city').hasClass('select2-hidden-accessible')) {
-                // City select already exists – no async work was triggered
-                restoringState = false;
-            }
-
-            // Refresh the service selector if Speedy is active
-            if (isSpeedyActive) {
+            // Speedy is selected — set up / restore UI.
+            // If our select2 city is still in the DOM, WC didn't rebuild — nothing to do.
+            if ($('#' + currentContext + '_city').hasClass('select2-hidden-accessible')) {
                 refreshServiceSelector();
+                return;
             }
+
+            // WC rebuilt the DOM. Capture clean originals, then set up Speedy.
+            captureOriginals('billing');
+            captureOriginals('shipping');
+
+            setupSpeedyUI();
         });
 
         // Listen for Country Change (WC re-sorts fields on this event)
@@ -143,6 +160,7 @@
             if (isSpeedyActive) {
                 setTimeout(function() {
                     reorderFieldsForSpeedy();
+                    initStateSelect2WithTransliteration();
                     makeRegionRequired();
                 }, 100);
             }
@@ -159,7 +177,7 @@
                 updateContext();
                 
                 // Re-activate on new context
-                activateSpeedy();
+                setupSpeedyUI();
             } else {
                 updateContext();
             }
@@ -175,7 +193,6 @@
 
         // Initial check on page load
         updateContext();
-        checkShippingMethod();
 
         // Inject Modal HTML if not present
         if ($('#speedy-map-modal').length === 0) {
@@ -330,67 +347,183 @@
             }
         }
 
-        function checkShippingMethod() {
-            const selectedMethod = $('input[name^="shipping_method"]:checked').val();
-            if (selectedMethod && selectedMethod.indexOf(speedyMethodId) !== -1) {
-                if (!isSpeedyActive) {
-                    activateSpeedy();
-                }
-            } else {
-                if (isSpeedyActive) {
-                    deactivateSpeedy();
-                }
-            }
-        }
-
-        function activateSpeedy() {
+        /**
+         * Single setup/restore function for the Speedy UI.
+         * Called only from updated_checkout — never from document.ready.
+         * Uses caches when available to avoid redundant AJAX calls.
+         */
+        function setupSpeedyUI() {
             isSpeedyActive = true;
+            settingUp = true;
 
             reorderFieldsForSpeedy();
-            sortRegions();
+            initStateSelect2WithTransliteration();
             makeRegionRequired();
 
-            const currentState = $('#' + currentContext + '_state').val();
-            const currentCity = $('#' + currentContext + '_city').val();
+            // Determine state: session > DOM
+            const effectiveState = params.current_state || $('#' + currentContext + '_state').val();
 
-            if (!currentState) {
-                $('#' + currentContext + '_city_field').hide();
-                restoringState = false;
-            } else {
-                handleStateChange(currentState, currentCity);
+            if (params.current_state) {
+                const $stateEl = $('#' + currentContext + '_state');
+                if ($stateEl.val() !== params.current_state) {
+                    $stateEl.val(params.current_state).trigger('change.select2');
+                }
             }
 
-            $('body').on('change.speedy', '#' + currentContext + '_state', function() {
-                const state = $(this).val();
-                if (isSpeedyActive) {
-                    // State changed — remove stale delivery options from previous city
-                    $('#speedy-delivery-type-field').remove();
-                    $('#speedy-office-field').remove();
-                    $('#speedy-map-button-wrapper').remove();
-                    $('#speedy-service-field').remove();
-                    lastDeliveryType = 'address';
-                    lastOfficeId = '';
+            // City to pre-select: session (numeric ID) > DOM text value
+            const preSelectCity = cachedCityId || params.current_city_id || $('#' + currentContext + '_city').val();
 
-                    // Clear the city value immediately so the next update_checkout
-                    // sees no city and returns the missing_address rate (no price).
-                    const $cityEl = $('#' + currentContext + '_city');
-                    if ($cityEl.is('select')) {
-                        $cityEl.val('').trigger('change.select2');
-                    } else {
-                        $cityEl.val('');
-                    }
+            if (!effectiveState) {
+                $('#' + currentContext + '_city_field').hide();
+                settingUp = false;
+                bindStateChangeHandler();
+                return;
+            }
 
-                    if (state) {
-                        $('#' + currentContext + '_city_field').show();
-                        handleStateChange(state);
-                    } else {
-                        $('#' + currentContext + '_city_field').hide();
-                    }
-                    // Recalculate so stale price is cleared
-                    $(document.body).trigger('update_checkout');
+            // Load cities (cached or AJAX) then continue the chain
+            loadCities(effectiveState, function(cities) {
+                if (!cities) { settingUp = false; bindStateChangeHandler(); return; }
+
+                replaceCityInputWithSelect(cities, preSelectCity, true); // skip auto-trigger
+
+                const $citySelect = $('#' + currentContext + '_city');
+                const selectedCityId = $citySelect.val();
+
+                if (!selectedCityId) {
+                    // No city matched — user will have to pick one
+                    settingUp = false;
+                    bindStateChangeHandler();
+                    return;
                 }
+
+                // Load availability (cached or AJAX) then continue
+                loadAvailability(selectedCityId, function(availData) {
+                    if (availData) {
+                        presentDeliveryOptions(availData);
+                    }
+
+                    settingUp = false;
+                    bindStateChangeHandler();
+
+                    // Now trigger a single update_checkout to get the correct price
+                    $(document.body).trigger('update_checkout');
+                });
             });
         }
+
+        /**
+         * Load cities for a state — uses cache if available.
+         * Calls callback(cities) when done.
+         */
+        function loadCities(stateCode, callback) {
+            let deferred = $.Deferred();
+
+            if (stateCode === cachedState && cachedCities) {
+                callback(cachedCities);
+                deferred.resolve();
+                return deferred.promise();
+            }
+
+            $.ajax({
+                url: params.ajax_url,
+                type: 'POST',
+                data: { action: 'speedy_get_cities', region: stateCode },
+                success: function(response) {
+                    if (response.success) {
+                        cachedState = stateCode;
+                        cachedCities = response.data;
+                        callback(response.data);
+                    } else {
+                        callback(null);
+                    }
+                    deferred.resolve();
+                },
+                error: function() { callback(null); deferred.resolve(); }
+            });
+
+            return deferred.promise();
+        }
+
+        /**
+         * Load availability for a city — uses cache if available.
+         * Calls callback(data) when done.
+         */
+        function loadAvailability(cityId, callback) {
+            if (String(cityId) === String(cachedCityId) && cachedAvailability) {
+                callback(cachedAvailability);
+                return;
+            }
+
+            $.ajax({
+                url: params.ajax_url,
+                type: 'POST',
+                data: { action: 'speedy_check_availability', city_id: cityId },
+                success: function(response) {
+                    if (response.success) {
+                        cachedCityId = cityId;
+                        cachedAvailability = response.data;
+                        callback(response.data);
+                    } else {
+                        callback(null);
+                    }
+                },
+                error: function() { callback(null); }
+            });
+        }
+
+        /**
+         * Bind the state change handler (user changes state dropdown).
+         */
+        function bindStateChangeHandler() {
+            $('body').off('change.speedy');
+            $('body').on('change.speedy', '#' + currentContext + '_state', function() {
+                const state = $(this).val();
+                if (!isSpeedyActive) return;
+
+                // State changed — remove stale delivery options
+                $('#speedy-delivery-type-field').remove();
+                $('#speedy-office-field').remove();
+                $('#speedy-map-button-wrapper').remove();
+                $('#speedy-service-field').remove();
+                lastDeliveryType = 'address';
+                lastOfficeId = '';
+
+                // Invalidate caches
+                cachedState = '';
+                cachedCities = null;
+                cachedCityId = '';
+                cachedAvailability = null;
+
+                const $cityEl = $('#' + currentContext + '_city');
+                if ($cityEl.is('select')) {
+                    $cityEl.val('').trigger('change.select2');
+                } else {
+                    $cityEl.val('');
+                }
+
+                if (state) {
+                    $('#' + currentContext + '_city_field').show();
+                    handleStateChange(state);
+                } else {
+                    $('#' + currentContext + '_city_field').hide();
+                }
+                $(document.body).trigger('update_checkout');
+            });
+        }
+
+        function checkShippingMethod() {
+            const selectedMethod = $('input[name^="shipping_method"]:checked').val();
+            const speedySelected = selectedMethod && selectedMethod.indexOf(speedyMethodId) !== -1;
+
+            // Activation is handled exclusively by the updated_checkout handler.
+            // WC triggers update_checkout automatically when the radio changes,
+            // so updated_checkout will fire and call setupSpeedyUI().
+            // We only need to handle deactivation here (switching AWAY from Speedy).
+            if (!speedySelected && isSpeedyActive) {
+                deactivateSpeedy();
+            }
+        }
+
 
         function deactivateSpeedy() {
             isSpeedyActive = false;
@@ -439,27 +572,15 @@
             if (originalPrio && originalPrio.state) $stateField.attr('data-priority', originalPrio.state);
         }
 
-        function sortRegions() {
-            const $stateSelect = $('#' + currentContext + '_state');
-            const options = $stateSelect.find('option');
-            const placeholder = options.filter('[value=""]');
-            const sofiaCity = options.filter('[value="BG-22"]');
-            const others = options.filter(function() {
-                return this.value !== "" && this.value !== "BG-22";
-            });
-
-            others.sort(function(a, b) {
-                return a.text.localeCompare(b.text);
-            });
-
-            $stateSelect.empty();
-            $stateSelect.append(placeholder);
-            if (sofiaCity.length) $stateSelect.append(sofiaCity);
-            $stateSelect.append(others);
-
-            if ($stateSelect.hasClass('select2-hidden-accessible')) {
-                $stateSelect.trigger('change.select2'); 
-            }
+        /**
+         * Re-init the state select2 with our transliteration-aware matcher.
+         * WooCommerce initializes it without transliteration support.
+         */
+        function initStateSelect2WithTransliteration() {
+            SpeedyModern.initStateSelect2(
+                $('#' + currentContext + '_state'),
+                params.current_state
+            );
         }
 
         function makeRegionRequired() {
@@ -519,29 +640,21 @@
 
         function handleStateChange(stateCode, preSelectedCity) {
             if (!isSpeedyActive || !stateCode) {
-                restoringState = false;
                 return;
             }
 
-            return $.ajax({
-                url: params.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'speedy_get_cities',
-                    region: stateCode
-                },
-                success: function(response) {
-                    if (response.success) {
-                        replaceCityInputWithSelect(response.data, preSelectedCity);
-                    }
+            // Use loadCities which handles caching
+            return loadCities(stateCode, function(cities) {
+                if (cities) {
+                    replaceCityInputWithSelect(cities, preSelectedCity);
                 }
             });
         }
 
-        function replaceCityInputWithSelect(cities, preSelectedCity) {
+        function replaceCityInputWithSelect(cities, preSelectedCity, skipAutoTrigger) {
             const $cityField = $('#' + currentContext + '_city_field');
             const $cityWrapper = $cityField.find('.woocommerce-input-wrapper');
-            const currentCity = preSelectedCity || $('#' + currentContext + '_city').val();
+            const currentCity = preSelectedCity || $('#' + currentContext + '_city').val() || params.current_city_id;
 
             let options = '<option value="">' + params.i18n.select_city + '</option>';
             $.each(cities, function(index, city) {
@@ -571,11 +684,22 @@
                 handleCityChange($(this).val());
             });
             
+            // When called from setupSpeedyUI, skip auto-trigger — the caller controls the chain.
+            if (!skipAutoTrigger) {
+                if ($newCitySelect.val()) {
+                     handleCityChange($newCitySelect.val());
+                } else {
+                     settingUp = false;
+                }
+            }
+
+            // Set postcode for pre-selected city
             if ($newCitySelect.val()) {
-                 handleCityChange($newCitySelect.val());
-            } else {
-                 // No preselected city – clear the restoration flag
-                 restoringState = false;
+                const $sel = $newCitySelect.find(':selected');
+                const pc = $sel.data('postcode');
+                if (pc) {
+                    $('#' + currentContext + '_postcode').val(pc).trigger('change');
+                }
             }
         }
 
@@ -588,24 +712,12 @@
                 $('#' + currentContext + '_postcode').val(postcode).trigger('change');
             }
 
-            $.ajax({
-                url: params.ajax_url,
-                type: 'POST',
-                data: {
-                    action: 'speedy_check_availability',
-                    city_id: cityId
-                },
-                success: function(response) {
-                    if (response.success) {
-                        presentDeliveryOptions(response.data);
-                    }
-                    // City changed → recalculate shipping (skip during UI restoration)
-                    if (!restoringState) {
-                        $(document.body).trigger('update_checkout');
-                    }
-                    // Always clear the flag here – this is the end of the async restoration chain
-                    restoringState = false;
+            loadAvailability(cityId, function(data) {
+                if (data) {
+                    presentDeliveryOptions(data);
                 }
+                $(document.body).trigger('update_checkout');
+                settingUp = false;
             });
         }
 
@@ -704,7 +816,7 @@
 
         function showPointsDropdown(points, type) {
             const label = (type === 'office') ? params.i18n.select_office : params.i18n.select_automat;
-            let options = '<option value=""></option>';
+            let options = '<option value="" selected></option>';
 
             $.each(points, function(index, point) {
                 options += '<option value="' + point.id + '">' + point.label + '</option>';
@@ -726,21 +838,17 @@
                 matcher: modelMatcher
             });
 
+            // Pre-select saved office (if any) BEFORE binding the change handler.
+            // Otherwisek, ensure the placeholder is shown (no office selected).
             if (lastOfficeId) {
-                $officeSelect.val(lastOfficeId).trigger('change');
+                $officeSelect.val(lastOfficeId).trigger('change.select2');
+            } else {
+                $officeSelect.val('').trigger('change.select2');
             }
 
-            const mapBtnHtml = '<p class="form-row form-row-wide" id="speedy-map-button-wrapper" style="margin-top: 10px;">' +
-                '<button type="button" id="speedy-open-map" class="button" style="width: 100%;">' + params.i18n.select_from_map + '</button>' +
-                '</p>';
-            
-            $('#speedy-office-field').after(mapBtnHtml);
-
-            $('#speedy-open-map').on('click', function() {
-                openSpeedyMap();
-            });
-
+            // Now bind the change handler for user-initiated changes
             $officeSelect.on('change', function() {
+                const officeVal = $(this).val();
                 const selectedText = $(this).find('option:selected').text();
                 const deliveryType = $('input[name="speedy_delivery_type"]:checked').val();
                 
@@ -753,13 +861,23 @@
                     $address1Field.find('input').val(params.i18n.to_automat);
                 }
                 
-                $address2Field.find('input').val(selectedText);
-                
-                lastOfficeId = $(this).val();
+                $address2Field.find('input').val(officeVal ? selectedText : '');
+
+                lastOfficeId = officeVal || '';
                 sessionStorage.setItem('speedy_office_id', lastOfficeId);
 
                 // Office/automat selected → recalculate shipping
                 $(document.body).trigger('update_checkout');
+            });
+
+            const mapBtnHtml = '<p class="form-row form-row-wide" id="speedy-map-button-wrapper" style="margin-top: 10px;">' +
+                '<button type="button" id="speedy-open-map" class="button" style="width: 100%;">' + params.i18n.select_from_map + '</button>' +
+                '</p>';
+
+            $('#speedy-office-field').after(mapBtnHtml);
+
+            $('#speedy-open-map').on('click', function() {
+                openSpeedyMap();
             });
         }
 
@@ -838,7 +956,7 @@
          * The session is already updated with the selected service/price,
          * so we just trigger update_checkout to recalculate totals.
          */
-        function updateSpeedyPriceInUI(cost) {
+        function updateSpeedyPriceInUI() {
             $(document.body).trigger('update_checkout');
         }
 
@@ -860,32 +978,6 @@
             
             $speedyMapFrame.attr('src', url);
             $speedyMapModal.show();
-        }
-
-        // --- Transliteration Logic ---
-
-        function transliterate(text) {
-            const map = {
-                'A': 'А', 'B': 'Б', 'V': 'В', 'G': 'Г', 'D': 'Д', 'E': 'Е', 'Z': 'З', 'I': 'И', 'J': 'Й', 'K': 'К', 'L': 'Л', 'M': 'М', 'N': 'Н', 'O': 'О', 'P': 'П', 'R': 'Р', 'S': 'С', 'T': 'Т', 'U': 'У', 'F': 'Ф', 'H': 'Х', 'C': 'Ц',
-                'a': 'а', 'b': 'б', 'v': 'в', 'g': 'г', 'd': 'д', 'e': 'е', 'z': 'з', 'i': 'и', 'j': 'й', 'k': 'к', 'l': 'л', 'm': 'м', 'n': 'н', 'o': 'о', 'p': 'п', 'r': 'р', 's': 'с', 't': 'т', 'u': 'у', 'f': 'ф', 'h': 'х', 'c': 'ц',
-                'Sht': 'Щ', 'sht': 'щ', 'Sh': 'Ш', 'sh': 'ш', 'Ch': 'Ч', 'ch': 'ч', 'Yu': 'Ю', 'yu': 'ю', 'Ya': 'Я', 'ya': 'я', 'Zh': 'Ж', 'zh': 'ж', 'Ts': 'Ц', 'ts': 'ц',
-                'Y': 'Й', 'y': 'й', 'X': 'Х', 'x': 'х', 'W': 'В', 'w': 'в', 'Q': 'Я', 'q': 'я'
-            };
-
-            const multiChars = ['Sht', 'sht', 'Sh', 'sh', 'Ch', 'ch', 'Yu', 'yu', 'Ya', 'ya', 'Zh', 'zh', 'Ts', 'ts'];
-            for (let i = 0; i < multiChars.length; i++) {
-                const latin = multiChars[i];
-                const cyrillic = map[latin];
-                const regex = new RegExp(latin, 'g');
-                text = text.replace(regex, cyrillic);
-            }
-
-            let result = '';
-            for (let i = 0; i < text.length; i++) {
-                const char = text[i];
-                result += map[char] || char;
-            }
-            return result;
         }
 
         // ── Street Autocomplete ──
@@ -1074,7 +1166,7 @@
                     highlightItem($items);
                 } else if (e.key === 'Enter' && streetSelectedIndex >= 0) {
                     e.preventDefault();
-                    var text = $items.eq(streetSelectedIndex).text();
+                    let text = $items.eq(streetSelectedIndex).text();
                     if (text !== params.i18n.no_results) {
                         selectStreet({ label: text });
                     }
@@ -1095,22 +1187,12 @@
             });
         })();
 
-        function modelMatcher(params, data) {
-            if ($.trim(params.term) === '') {
-                return data;
-            }
-            if (typeof data.text === 'undefined') {
-                return null;
-            }
-            const original = data.text.toUpperCase();
-            const term = params.term.toUpperCase();
-            const transliteratedTerm = transliterate(params.term).toUpperCase();
-
-            if (original.indexOf(term) > -1 || original.indexOf(transliteratedTerm) > -1) {
-                return data;
-            }
-            return null;
-        }
+        // --- Select2 matcher (from speedy-common.js) ---
+        var modelMatcher = SpeedyModern.modelMatcher;
 
     });
 })(jQuery, window.speedy_params);
+
+
+
+

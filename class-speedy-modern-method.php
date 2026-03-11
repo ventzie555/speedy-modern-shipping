@@ -1,7 +1,9 @@
-<?php
-
+<?php /** @noinspection ALL */
 /**
  * Speedy Modern Shipping Method Class
+ *
+ * @copyright 2026 DRUSOFT LTD. All rights reserved.
+ * @license Proprietary - No Redistribution.
  */
 if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
@@ -51,16 +53,15 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * Save Speedy session data to the order before it is created.
 		 *
 		 * @param WC_Order $order The order object being created.
-		 * @param array    $data  Posted data.
-		 */
-		public function save_shipping_data_to_order( $order, $data ) {
+         */
+		public function save_shipping_data_to_order(WC_Order $order): void {
 			// 1. Check if our shipping method is chosen
 			$chosen_methods = WC()->session->get( 'chosen_shipping_methods' );
 			$is_speedy      = false;
 
 			if ( ! empty( $chosen_methods ) ) {
 				foreach ( $chosen_methods as $method_id ) {
-					if ( 0 === strpos( $method_id, $this->id ) ) {
+					if ( str_starts_with( $method_id, $this->id ) ) {
 						$is_speedy = true;
 						break;
 					}
@@ -265,31 +266,31 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			);
 		}
 
-		/**
-		 * Validate the sender_city field.
-		 *
-		 * Since the options are loaded via AJAX, the standard validation (checking against keys) fails.
-		 * We simply return the value (sanitized).
-		 *
-		 * @param string $key
-		 * @param string $value
-		 * @return string
-		 */
-		public function validate_sender_city_field( $key, $value ): string {
+        /**
+         * Validate the sender_city field.
+         *
+         * Since the options are loaded via AJAX, the standard validation (checking against keys) fails.
+         * We simply return the value (sanitized).
+         *
+         * @param string $_key
+         * @param string $value
+         * @return string
+         */
+		public function validate_sender_city_field( string $_key, string $value ): string {
 			return sanitize_text_field( $value );
 		}
 
-		/**
-		 * Validate the sender_office field.
-		 *
-		 * Since the options are loaded via AJAX, the standard validation (checking against keys) fails.
-		 * We simply return the value (sanitized).
-		 *
-		 * @param string $key
-		 * @param string $value
-		 * @return string
-		 */
-		public function validate_sender_office_field( $key, $value ) {
+        /**
+         * Validate the sender_office field.
+         *
+         * Since the options are loaded via AJAX, the standard validation (checking against keys) fails.
+         * We simply return the value (sanitized).
+         *
+         * @param string $_key
+         * @param string $value
+         * @return string
+         */
+		public function validate_sender_office_field( string $_key, string $value ): string {
 			return sanitize_text_field( $value );
 		}
 
@@ -703,25 +704,11 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				'password' => $password,
 			] );
 
-			// Execute API Call
-			$ch = curl_init( 'https://api.speedy.bg/v1/client/contract' );
-			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
-			curl_setopt( $ch, CURLOPT_POST, true );
-			curl_setopt( $ch, CURLOPT_POSTFIELDS, $body );
-			curl_setopt( $ch, CURLOPT_HTTPHEADER, [
-				'Content-Type: application/json',
-				'Accept: application/json'
-			] );
+			$data = self::speedy_curl_post( 'https://api.speedy.bg/v1/client/contract', $body );
 
-			$response = curl_exec( $ch );
-			$error    = curl_error( $ch );
-			curl_close( $ch );
-
-			if ( $error ) {
+			if ( null === $data ) {
 				return $clients;
 			}
-
-			$data = json_decode( $response, true );
 
 			// Process and Format Data
 			if ( isset( $data['clients'] ) && is_array( $data['clients'] ) ) {
@@ -749,6 +736,33 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		}
 
 		/**
+		 * Get the first available office or automat ID for a specific city.
+		 *
+		 * @param int    $city_id
+		 * @param string $type 'office' or 'automat'
+		 * @return int Office ID or 0 if not found.
+		 */
+		public static function get_first_available_office( int $city_id, string $type ): int {
+			global $wpdb;
+			$table_name = $wpdb->prefix . 'speedy_offices';
+
+			// Speedy types: APT/APS is automat, others are office.
+			if ( 'automat' === $type ) {
+				$query = $wpdb->prepare(
+					"SELECT id FROM $table_name WHERE city_id = %d AND (office_type IN ('APT', 'APS') OR name LIKE '%%АВТОМАТ%%' OR name LIKE '%%APS%%' OR name LIKE '%%APT%%') LIMIT 1",
+					$city_id
+				);
+			} else {
+				$query = $wpdb->prepare(
+					"SELECT id FROM $table_name WHERE city_id = %d AND (office_type NOT IN ('APT', 'APS') AND name NOT LIKE '%%АВТОМАТ%%' AND name NOT LIKE '%%APS%%' AND name NOT LIKE '%%APT%%') LIMIT 1",
+					$city_id
+				);
+			}
+
+			return (int) $wpdb->get_var( $query );
+		}
+
+		/**
 		 * Fetch available Speedy offices from API and sort them alphabetically
 		 *
 		 * @param string|null $username
@@ -756,7 +770,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * @param string|null $term
 		 * @return array Associative array of [officeId => "Name - Address"]
 		 */
-		public static function get_speedy_offices( $username = null, $password = null, $term = null ): array {
+		public static function get_speedy_offices( ?string $username = null, ?string $password = null, ?string $term = null ): array {
 			$offices = [ '0' => __( '-- Select Office --', 'speedy-modern' ) ];
 
 			// Try to fetch from local DB first
@@ -830,24 +844,11 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 			$body = json_encode( $body_data );
 
-			$ch = curl_init( 'https://api.speedy.bg/v1/location/office' );
-			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
-			curl_setopt( $ch, CURLOPT_POST, true );
-			curl_setopt( $ch, CURLOPT_POSTFIELDS, $body );
-			curl_setopt( $ch, CURLOPT_HTTPHEADER, [
-				'Content-Type: application/json',
-				'Accept: application/json'
-			] );
+			$data = self::speedy_curl_post( 'https://api.speedy.bg/v1/location/office', $body );
 
-			$response = curl_exec( $ch );
-			$error    = curl_error( $ch );
-			curl_close( $ch );
-
-			if ( $error ) {
+			if ( null === $data ) {
 				return $offices;
 			}
-
-			$data = json_decode( $response, true );
 
 			if ( isset( $data['offices'] ) && is_array( $data['offices'] ) ) {
 				$temp_offices = [];
@@ -907,25 +908,11 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				'password' => $password,
 			] );
 
-			// Execute API Call
-			$ch = curl_init( 'https://api.speedy.bg/v1/services' );
-			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
-			curl_setopt( $ch, CURLOPT_POST, true );
-			curl_setopt( $ch, CURLOPT_POSTFIELDS, $body );
-			curl_setopt( $ch, CURLOPT_HTTPHEADER, [
-				'Content-Type: application/json',
-				'Accept: application/json'
-			] );
+			$data = self::speedy_curl_post( 'https://api.speedy.bg/v1/services', $body );
 
-			$response = curl_exec( $ch );
-			$error    = curl_error( $ch );
-			curl_close( $ch );
-
-			if ( $error ) {
+			if ( null === $data ) {
 				return $services_list;
 			}
-
-			$data = json_decode( $response, true );
 
 			// Process and Format Data
 			if ( isset( $data['services'] ) && is_array( $data['services'] ) ) {
@@ -981,29 +968,16 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				return $requirements;
 			}
 
-			$body = json_encode([
+			$body = json_encode( [
 				'userName' => $username,
 				'password' => $password,
-			]);
-
-			$ch = curl_init( 'https://api.speedy.bg/v1/client/contract/info' );
-			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
-			curl_setopt( $ch, CURLOPT_POST, true );
-			curl_setopt( $ch, CURLOPT_POSTFIELDS, $body );
-			curl_setopt( $ch, CURLOPT_HTTPHEADER, [
-				'Content-Type: application/json',
-				'Accept: application/json'
 			] );
 
-			$response = curl_exec( $ch );
-			$error = curl_error( $ch );
-			curl_close( $ch );
+			$data = self::speedy_curl_post( 'https://api.speedy.bg/v1/client/contract/info', $body );
 
-			if ( $error ) {
+			if ( null === $data ) {
 				return $requirements;
 			}
-
-			$data = json_decode( $response, true );
 
 			if ( isset( $data['specialDeliveryRequirements']['requirements'] ) && is_array( $data['specialDeliveryRequirements']['requirements'] ) ) {
 				foreach ( $data['specialDeliveryRequirements']['requirements'] as $req ) {
@@ -1063,23 +1037,28 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			$city_id        = $checkout['city_id'];
 			$payment_method = $checkout['payment_method'];
 
-			// For office/automat delivery, we need an office selected
-			if ( in_array( $delivery_type, [ 'office', 'automat' ], true ) && empty( $office_id ) ) {
-				// Clear stale session data so the old address price doesn't linger
-				if ( WC()->session ) {
-					WC()->session->set( 'speedy_modern_service_options', [] );
-					WC()->session->set( 'speedy_modern_shipping_cost', 0 );
+			// Persist selection to session (but NOT the auto-picked office below)
+			if ( WC()->session ) {
+				WC()->session->set( 'speedy_modern_city_id', $city_id );
+				WC()->session->set( 'speedy_modern_delivery_type', $delivery_type );
+				if ( $office_id > 0 ) {
+					WC()->session->set( 'speedy_modern_office_id', $office_id );
 				}
-				$this->add_rate( [
-					'id'        => $this->get_rate_id(),
-					'label'     => $this->title,
-					'cost'      => 0,
-					'meta_data' => [ 'missing_address' => true ],
-				] );
-				return;
 			}
 
-			// For address delivery, we need a city
+			// For office/automat delivery without a specific office chosen,
+			// pick the first available one just for the price calculation.
+			// This is NOT saved to session — the user still picks on checkout.
+			if ( in_array( $delivery_type, [ 'office', 'automat' ], true ) && empty( $office_id ) ) {
+				$office_id = self::get_first_available_office( $city_id, $delivery_type );
+			}
+
+			// Final validation: if we still have no city ID for address delivery, try one last session lookup
+			if ( 'address' === $delivery_type && empty( $city_id ) && WC()->session ) {
+				$city_id = absint( WC()->session->get( 'speedy_modern_city_id', 0 ) );
+			}
+
+			// For address delivery, we need a city. 
 			if ( 'address' === $delivery_type && empty( $city_id ) ) {
 				// Clear stale session data
 				if ( WC()->session ) {
@@ -1102,7 +1081,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			$order_total = 0.0;
 			$subtotal    = 0.0;
 			if ( WC()->cart ) {
-				$subtotal    = (float) WC()->cart->get_subtotal();
+				$subtotal    = WC()->cart->get_subtotal();
 				$order_total = (float) WC()->cart->get_totals()['total'] - (float) WC()->cart->get_totals()['shipping_total'];
 			}
 
@@ -1259,7 +1238,6 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 				// Check for top-level API error
 				if ( ! empty( $response['error'] ) ) {
-					$error_msg = $response['error']['message'] ?? 'Unknown API error';
 					$fallback = WC()->session ? WC()->session->get( 'speedy_modern_shipping_cost', 0 ) : 0;
 					$this->add_rate( [
 						'id'    => $this->get_rate_id(),
@@ -1401,27 +1379,55 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			$merged = array_merge( $data, $_POST );
 
 			// Determine which address context to use (billing or shipping)
-			$ship_to_different = ! empty( $merged['ship_to_different_address'] ) ? true : false;
+			$ship_to_different = ! empty( $merged['ship_to_different_address'] );
 			$context = $ship_to_different ? 'shipping' : 'billing';
+
+			// Delivery Type
+			$delivery_type = sanitize_text_field( $merged['speedy_delivery_type'] ?? '' );
+			if ( empty( $delivery_type ) && WC()->session ) {
+				$delivery_type = WC()->session->get( 'speedy_modern_delivery_type', 'address' );
+			}
+			if ( empty( $delivery_type ) ) {
+				$delivery_type = 'address';
+			}
+
+			// Office ID
+			$office_id = absint( $merged['speedy_office_id'] ?? 0 );
+			if ( $office_id === 0 && WC()->session ) {
+				$office_id = absint( WC()->session->get( 'speedy_modern_office_id', 0 ) );
+			}
 
 			// City ID: the checkout.js replaces the city input with a <select> whose
 			// name is "{context}_city" and value is the Speedy siteId.
 			$city_id = 0;
+
+			// 1. Try checkout fields (Speedy IDs are numbers)
 			if ( ! empty( $merged[ $context . '_city' ] ) && is_numeric( $merged[ $context . '_city' ] ) ) {
 				$city_id = absint( $merged[ $context . '_city' ] );
 			} elseif ( ! empty( $merged['billing_city'] ) && is_numeric( $merged['billing_city'] ) ) {
 				$city_id = absint( $merged['billing_city'] );
 			}
+			// 2. Try cart calculator fields
+			elseif ( ! empty( $merged['calc_shipping_city'] ) && is_numeric( $merged['calc_shipping_city'] ) ) {
+				$city_id = absint( $merged['calc_shipping_city'] );
+			}
+			// 3. Try customer session as last resort
+			elseif ( WC()->session ) {
+				$city_id = absint( WC()->session->get( 'speedy_modern_city_id', 0 ) );
+				if ( ! $city_id && WC()->customer ) {
+					$session_city = WC()->customer->get_shipping_city() ?: WC()->customer->get_billing_city();
+					if ( is_numeric( $session_city ) ) {
+						$city_id = absint( $session_city );
+					}
+				}
+			}
 
-			$result = [
-				'delivery_type'  => sanitize_text_field( $merged['speedy_delivery_type'] ?? 'address' ),
-				'office_id'      => absint( $merged['speedy_office_id'] ?? 0 ),
+			return [
+				'delivery_type'  => $delivery_type,
+				'office_id'      => $office_id,
 				'city_id'        => $city_id,
 				'payment_method' => sanitize_text_field( $merged['payment_method'] ?? '' ),
 			];
-
-
-			return $result;
 		}
 
 		/* ───────────────────────────────────────────────────
@@ -1456,7 +1462,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 			// Fallback: use WC cart weight (covers edge cases)
 			if ( $weight <= 0 && WC()->cart ) {
-				$weight = (float) WC()->cart->get_cart_contents_weight();
+				$weight = WC()->cart->get_cart_contents_weight();
 			}
 
 			// Final fallback: 1 kg
@@ -1522,7 +1528,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * @param float  $subtotal      Cart subtotal.
 		 * @return float|false Price from CSV, or false if no match found.
 		 */
-		private function get_csv_file_price( string $delivery_type, float $weight, float $subtotal ) {
+		private function get_csv_file_price( string $delivery_type, float $weight, float $subtotal ): float|false {
 			// Try instance option first, then legacy global option
 			$file_path = $this->get_option( 'fileceni' );
 			if ( empty( $file_path ) || ! file_exists( $file_path ) ) {
@@ -1557,7 +1563,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					continue;
 				}
 
-				list( $csv_service_id, $csv_take_from_office, $csv_weight, $csv_order_total, $csv_price ) = $row;
+				list( $_csv_service_id, $csv_take_from_office, $csv_weight, $csv_order_total, $csv_price ) = $row;
 
 				if (
 					(int) $csv_take_from_office === $take_from_office &&
@@ -1589,17 +1595,17 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * pricing override is active, the courier payer is forced to SENDER
 		 * and the COD amount is adjusted to subtotal + shipping cost.
 		 *
-		 * @param string     $delivery_type   'address', 'office', or 'automat'
-		 * @param int        $office_id       Speedy office/automat ID.
-		 * @param int        $city_id         Speedy city (site) ID.
-		 * @param float      $order_weight    Shipment weight in kg.
-		 * @param float      $order_total     Order total minus shipping.
-		 * @param float      $subtotal        Cart subtotal.
-		 * @param bool       $is_cod          Whether payment is Cash on Delivery.
-		 * @param string     $payment_method  WC payment method slug.
-		 * @param bool       $is_free         Whether free shipping is active.
-		 * @param float|null $fixed_price     Fixed shipping cost (null = not active).
-		 * @param float|null $file_price      CSV file shipping cost (null = not active).
+		 * @param string     $delivery_type    'address', 'office', or 'automat'
+		 * @param int        $office_id        Speedy office/automat ID.
+		 * @param int        $city_id          Speedy city (site) ID.
+		 * @param float      $order_weight     Shipment weight in kg.
+		 * @param float      $order_total      Order total minus shipping.
+		 * @param float      $subtotal         Cart subtotal.
+		 * @param bool       $is_cod           Whether payment is Cash on Delivery.
+		 * @param string     $_payment_method  WC payment method slug.
+		 * @param bool       $is_free          Whether free shipping is active.
+		 * @param float|null $fixed_price      Fixed shipping cost (null = not active).
+		 * @param float|null $file_price       CSV file shipping cost (null = not active).
 		 * @return array The API request payload (without credentials).
 		 */
 		private function build_api_calculate_payload(
@@ -1610,7 +1616,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			float $order_total,
 			float $subtotal,
 			bool $is_cod,
-			string $payment_method,
+			string $_payment_method,
 			bool $is_free = false,
 			?float $fixed_price = null,
 			?float $file_price = null
@@ -1653,7 +1659,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 			// If no sender data was set, send empty object so JSON encodes as {}
 			if ( empty( $sender ) ) {
-				$sender = new \stdClass();
+				$sender = new stdClass();
 			}
 
 			// ── Recipient ──
@@ -1756,7 +1762,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				// Declared Value (old plugin only adds this inside COD branch)
 				if ( 'YES' === $this->get_option( 'obqvena' ) ) {
 					$service['additionalServices']['declaredValue'] = [
-						'amount'                => (float) $order_total,
+						'amount'                => $order_total,
 						'fragile'               => ( 'YES' === $this->get_option( 'chuplivost' ) ),
 						'ignoreIfNotApplicable' => true,
 					];
@@ -1902,7 +1908,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					$products_total_with_vat += $sum['in'];
 
 					$fiscal_items[] = [
-						'description'   => 'Продукти от поръчка (група ' . $group . ')',
+						'description'   => sprintf( __( 'Products from order (group %s)', 'speedy-modern' ), $group ),
 						'vatGroup'      => $group,
 						'amount'        => round( $sum['ex'], 2 ),
 						'amountWithVat' => round( $sum['in'], 2 ),
@@ -1923,7 +1929,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					$shipping_amount_ex_vat = $shipping_amount_with_vat / ( 1 + $shipping_vat_rate );
 
 					$fiscal_items[] = [
-						'description'   => 'Доставка',
+						'description'   => __( 'Delivery', 'speedy-modern' ),
 						'vatGroup'      => 'Б',
 						'amount'        => round( $shipping_amount_ex_vat, 2 ),
 						'amountWithVat' => round( $shipping_amount_with_vat, 2 ),
@@ -1944,7 +1950,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * @param WC_Product $product
 		 * @return array { @type string $group, @type float $rate }
 		 */
-		private function resolve_vat_info( $product ): array {
+		private function resolve_vat_info(WC_Product $product ): array {
 			$tax_class = $product->get_tax_class();
 
 			if ( 'zero-rate' === $tax_class ) {
@@ -1971,7 +1977,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * @param array $payload Full request body including credentials.
 		 * @return array|WP_Error Decoded API response or WP_Error.
 		 */
-		private function call_speedy_calculate_api( array $payload ) {
+		private function call_speedy_calculate_api( array $payload ): array|WP_Error {
 
 			$body = $this->do_speedy_calculate_request( $payload );
 
@@ -2029,12 +2035,40 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		}
 
 		/**
+		 * Execute a JSON POST request to a Speedy API endpoint using cURL.
+		 *
+		 * @param string $url  Full API endpoint URL.
+		 * @param string $body JSON-encoded request body.
+		 * @return array|null  Decoded response or null on error.
+		 */
+		private static function speedy_curl_post( string $url, string $body ): ?array {
+			$ch = curl_init( $url );
+			curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
+			curl_setopt( $ch, CURLOPT_POST, true );
+			curl_setopt( $ch, CURLOPT_POSTFIELDS, $body );
+			curl_setopt( $ch, CURLOPT_HTTPHEADER, [
+				'Content-Type: application/json',
+				'Accept: application/json',
+			] );
+
+			$response = curl_exec( $ch );
+			$error    = curl_error( $ch );
+			curl_close( $ch );
+
+			if ( $error || ! $response ) {
+				return null;
+			}
+
+			return json_decode( $response, true );
+		}
+
+		/**
 		 * Execute a single Speedy /v1/calculate HTTP request.
 		 *
 		 * @param array $payload Full request body including credentials.
 		 * @return array|WP_Error Decoded API response or WP_Error.
 		 */
-		private function do_speedy_calculate_request( array $payload ) {
+		private function do_speedy_calculate_request( array $payload ): array|WP_Error {
 			$response = wp_remote_post( 'https://api.speedy.bg/v1/calculate', [
 				'headers' => [
 					'Content-Type' => 'application/json',
@@ -2050,7 +2084,6 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 			$code = wp_remote_retrieve_response_code( $response );
 			$body = json_decode( wp_remote_retrieve_body( $response ), true );
-
 
 			if ( $code < 200 || $code >= 300 ) {
 				$api_msg = $body['error']['message'] ?? "HTTP $code";

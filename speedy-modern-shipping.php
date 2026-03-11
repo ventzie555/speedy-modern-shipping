@@ -5,6 +5,9 @@
  * Version: 1.0.0
  * Author: DRUSOFT LTD
  * Text Domain: speedy-modern
+ *
+ * @copyright 2026 DRUSOFT LTD. All rights reserved.
+ * @license Proprietary - No Redistribution.
  */
 
 use Automattic\WooCommerce\Utilities\FeaturesUtil;
@@ -123,6 +126,73 @@ function register_speedy_modern_method( $methods ) {
 }
 
 /**
+ * Check office/automat availability for a given city.
+ *
+ * @param int $city_id Speedy city (site) ID.
+ * @return array { @type bool $has_office, @type bool $has_automat }
+ */
+function speedy_modern_check_city_availability( int $city_id ): array {
+	$has_office  = false;
+	$has_automat = false;
+
+	if ( $city_id <= 0 ) {
+		return compact( 'has_office', 'has_automat' );
+	}
+
+	global $wpdb;
+	$offices_table = $wpdb->prefix . 'speedy_offices';
+	$rows = $wpdb->get_results(
+		$wpdb->prepare(
+			"SELECT name, office_type FROM $offices_table WHERE city_id = %d",
+			$city_id
+		)
+	);
+
+	foreach ( $rows as $row ) {
+		if ( speedy_modern_is_automat( $row->office_type, $row->name ) ) {
+			$has_automat = true;
+		} else {
+			$has_office = true;
+		}
+		if ( $has_office && $has_automat ) {
+			break;
+		}
+	}
+
+	return compact( 'has_office', 'has_automat' );
+}
+
+/**
+ * Determine whether an office row represents an automat (APT/APS).
+ *
+ * @param string $office_type The office_type column value.
+ * @param string $name        The office name.
+ * @return bool
+ */
+function speedy_modern_is_automat( string $office_type, string $name ): bool {
+	return ( stripos( $office_type, 'APT' ) !== false
+		|| stripos( $office_type, 'APS' ) !== false
+		|| mb_stripos( $name, 'АВТОМАТ' ) !== false
+		|| stripos( $name, 'APS' ) !== false
+		|| stripos( $name, 'APT' ) !== false );
+}
+
+/**
+ * Get the display name for a Speedy city by ID (e.g. "гр. София").
+ *
+ * @param int $city_id Speedy city (site) ID.
+ * @return string City name or empty string if not found.
+ */
+function speedy_modern_get_city_name( int $city_id ): string {
+	global $wpdb;
+	$name = $wpdb->get_var( $wpdb->prepare(
+		"SELECT CONCAT(type, ' ', name) FROM {$wpdb->prefix}speedy_cities WHERE id = %d",
+		$city_id
+	) );
+	return $name ?: '';
+}
+
+/**
  * Append the selected Speedy service ID to the shipping package so the
  * package hash changes whenever the user picks a different service.
  * This forces WooCommerce to re-call calculate_shipping() instead of
@@ -150,6 +220,53 @@ function speedy_modern_vary_package_hash( $packages ) {
 	$context           = $ship_to_different ? 'shipping' : 'billing';
 	$city_id           = absint( $merged[ $context . '_city' ] ?? 0 );
 
+	// Also try the cart calculator city field and our dedicated hidden field
+	if ( ! $city_id ) {
+		$city_id = absint( $merged['calc_shipping_city'] ?? 0 );
+	}
+	if ( ! $city_id ) {
+		$city_id = absint( $merged['speedy_city_id'] ?? 0 );
+	}
+
+	// On the cart page, set session data directly from the form submission
+	// so calculate_shipping() can read them without a prior AJAX call.
+	if ( WC()->session && $city_id > 0 ) {
+		$session_city = absint( WC()->session->get( 'speedy_modern_city_id', 0 ) );
+		$session_type = WC()->session->get( 'speedy_modern_delivery_type', 'address' );
+
+		// Update session if something changed
+		if ( $city_id !== $session_city || $delivery_type !== $session_type ) {
+			WC()->session->set( 'speedy_modern_city_id', $city_id );
+			WC()->session->set( 'speedy_modern_delivery_type', $delivery_type );
+
+			// Update customer city
+			if ( WC()->customer ) {
+				$city_name = speedy_modern_get_city_name( $city_id );
+				WC()->customer->set_shipping_city( $city_name ?: $city_id );
+				WC()->customer->set_billing_city( $city_name ?: $city_id );
+				WC()->customer->save();
+			}
+
+			// Save office_id from POST data (if submitted), otherwise clear it for address delivery.
+			if ( $office_id > 0 ) {
+				WC()->session->set( 'speedy_modern_office_id', $office_id );
+			} elseif ( $delivery_type === 'address' ) {
+				WC()->session->set( 'speedy_modern_office_id', 0 );
+			}
+		}
+
+		// Update state from form if present
+		$state = sanitize_text_field( $merged['calc_shipping_state'] ?? '' );
+		if ( $state ) {
+			WC()->session->set( 'speedy_modern_state', $state );
+			if ( WC()->customer ) {
+				WC()->customer->set_shipping_state( $state );
+				WC()->customer->set_billing_state( $state );
+				WC()->customer->save();
+			}
+		}
+	}
+
 	foreach ( $packages as &$package ) {
 		$package['speedy_selected_service'] = $selected;
 		$package['speedy_delivery_type']    = $delivery_type;
@@ -166,7 +283,7 @@ function speedy_modern_vary_package_hash( $packages ) {
  */
 add_filter( 'woocommerce_cart_shipping_method_full_label', 'speedy_modern_hide_incomplete_price', 10, 2 );
 function speedy_modern_hide_incomplete_price( $label, $method ) {
-	if ( 0 === strpos( $method->id, 'speedy_modern' ) ) {
+	if (str_starts_with($method->id, 'speedy_modern')) {
 		$meta = $method->get_meta_data();
 		if ( ! empty( $meta['missing_address'] ) ) {
 			// Return just the method label without the price
@@ -183,13 +300,65 @@ function speedy_modern_hide_incomplete_price( $label, $method ) {
  */
 add_action( 'wp_enqueue_scripts', 'speedy_modern_enqueue_scripts' );
 function speedy_modern_enqueue_scripts(): void {
-	// Only load on checkout and only if we aren't in the admin
-	if ( is_checkout() && ! is_admin() ) {
+	if ( is_admin() ) {
+		return;
+	}
+
+	$current_type    = WC()->session ? WC()->session->get( 'speedy_modern_delivery_type', 'address' ) : 'address';
+	$current_city_id = WC()->session ? WC()->session->get( 'speedy_modern_city_id', 0 ) : 0;
+	$current_state   = WC()->session ? WC()->session->get( 'speedy_modern_state', '' ) : '';
+	$current_office  = WC()->session ? WC()->session->get( 'speedy_modern_office_id', 0 ) : 0;
+
+	if ( WC()->customer ) {
+		if ( ! $current_state ) {
+			$current_state = WC()->customer->get_shipping_state() ?: WC()->customer->get_billing_state();
+		}
+		if ( ! $current_city_id ) {
+			$cust_city = WC()->customer->get_shipping_city() ?: WC()->customer->get_billing_city();
+			if ( is_numeric( $cust_city ) ) {
+				$current_city_id = absint( $cust_city );
+			}
+		}
+	}
+
+	$params = array(
+		'ajax_url'           => admin_url( 'admin-ajax.php' ),
+		'method_id'          => 'speedy_modern',
+		'current_type'       => $current_type,
+		'current_city_id'    => $current_city_id,
+		'current_state'      => $current_state,
+		'current_office_id'  => $current_office,
+		'currency_symbol'    => get_woocommerce_currency_symbol(),
+		'i18n'            => array(
+			'to_address'       => __( 'To Address', 'speedy-modern' ),
+			'to_office'        => __( 'To Office', 'speedy-modern' ),
+			'to_automat'       => __( 'To Automat', 'speedy-modern' ),
+			'select_office'    => __( 'Select Office', 'speedy-modern' ),
+			'select_automat'   => __( 'Select Automat', 'speedy-modern' ),
+			'select_from_map'  => __( 'Select from Map', 'speedy-modern' ),
+			'select_city'      => __( 'Select a city...', 'speedy-modern' ),
+			'alert_select_city' => __( 'Please select a city first.', 'speedy-modern' ),
+			'no_results'       => __( 'No results', 'speedy-modern' ),
+			'select_service'   => __( 'Select Service', 'speedy-modern' ),
+		)
+	);
+
+	// Shared utilities (transliteration, select2 matcher, state sorting).
+	// Only registered here — loaded automatically on cart/checkout via dependency.
+	wp_register_script(
+		'speedy-modern-common',
+		SPEEDY_MODERN_URL . 'assets/js/speedy-common.js',
+		array( 'jquery', 'select2' ),
+		'1.0.0',
+		true
+	);
+
+	if ( is_checkout() ) {
 		wp_enqueue_script(
 			'speedy-modern-checkout',
 			SPEEDY_MODERN_URL . 'assets/js/checkout.js',
-			array( 'jquery', 'select2' ),
-			'1.0.7',
+			array( 'jquery', 'select2', 'speedy-modern-common' ),
+			'1.0.20',
 			true
 		);
 
@@ -200,25 +369,68 @@ function speedy_modern_enqueue_scripts(): void {
 			'1.0.1'
 		);
 
-		// Pass PHP data to JS (like AJAX URL or carrier IDs)
-		wp_localize_script( 'speedy-modern-checkout', 'speedy_params', array(
-			'ajax_url'        => admin_url( 'admin-ajax.php' ),
-			'method_id'       => 'speedy_modern',
-			'currency_symbol' => get_woocommerce_currency_symbol(),
-			'i18n'            => array(
-				'to_address'       => __( 'To Address', 'speedy-modern' ),
-				'to_office'        => __( 'To Office', 'speedy-modern' ),
-				'to_automat'       => __( 'To Automat', 'speedy-modern' ),
-				'select_office'    => __( 'Select Office', 'speedy-modern' ),
-				'select_automat'   => __( 'Select Automat', 'speedy-modern' ),
-				'select_from_map'  => __( 'Select from Map', 'speedy-modern' ),
-				'select_city'      => __( 'Select a city...', 'speedy-modern' ),
-				'alert_select_city' => __( 'Please select a city first.', 'speedy-modern' ),
-				'no_results'       => __( 'No results', 'speedy-modern' ),
-				'select_service'   => __( 'Select Service', 'speedy-modern' ),
-			)
-		));
+		wp_localize_script( 'speedy-modern-checkout', 'speedy_params', $params );
 	}
+
+	if ( is_cart() ) {
+		// Pre-compute availability so the JS doesn't need an AJAX call on load
+		$availability = speedy_modern_check_city_availability( $current_city_id );
+		$params['has_office']  = $availability['has_office'];
+		$params['has_automat'] = $availability['has_automat'];
+
+		wp_enqueue_script(
+			'speedy-modern-cart',
+			SPEEDY_MODERN_URL . 'assets/js/cart.js',
+			array( 'jquery', 'select2', 'speedy-modern-common' ),
+			'1.0.12',
+			true
+		);
+
+		wp_enqueue_style(
+			'speedy-modern-cart',
+			SPEEDY_MODERN_URL . 'assets/css/cart.css',
+			array(),
+			'1.0.0'
+		);
+
+		wp_localize_script( 'speedy-modern-cart', 'speedy_params', $params );
+	}
+}
+
+/**
+ * Add hidden fields to the cart form so delivery_type and city_id get
+ * submitted with the standard WC cart update — no separate AJAX needed.
+ */
+add_action( 'woocommerce_cart_contents', 'speedy_modern_cart_hidden_fields' );
+function speedy_modern_cart_hidden_fields(): void {
+	$delivery_type = WC()->session ? WC()->session->get( 'speedy_modern_delivery_type', 'address' ) : 'address';
+	$city_id       = WC()->session ? absint( WC()->session->get( 'speedy_modern_city_id', 0 ) ) : 0;
+	echo '<input type="hidden" name="speedy_delivery_type" id="speedy_cart_delivery_type" value="' . esc_attr( $delivery_type ) . '">';
+	echo '<input type="hidden" name="speedy_city_id" id="speedy_cart_city_id" value="' . esc_attr( $city_id ) . '">';
+}
+
+/**
+ * After each Speedy shipping rate is rendered, output a hidden element with
+ * availability data so the JS can read it from the DOM after cart updates.
+ */
+add_action( 'woocommerce_after_shipping_rate', 'speedy_modern_output_availability_data', 10, 2 );
+function speedy_modern_output_availability_data( $method ): void {
+	if (!str_starts_with($method->id, 'speedy_modern')) {
+		return;
+	}
+
+	$city_id = WC()->session ? absint( WC()->session->get( 'speedy_modern_city_id', 0 ) ) : 0;
+	if ( $city_id <= 0 ) {
+		return;
+	}
+
+	$availability = speedy_modern_check_city_availability( $city_id );
+
+	printf(
+		'<span id="speedy-availability-data" data-has-office="%s" data-has-automat="%s" style="display:none;"></span>',
+		$availability['has_office'] ? '1' : '0',
+		$availability['has_automat'] ? '1' : '0'
+	);
 }
 
 /**
@@ -340,7 +552,7 @@ add_action( 'wp_ajax_speedy_modern_search_cities', 'speedy_modern_search_cities'
 function speedy_modern_search_cities(): void {
 	// Check permissions
 	if ( ! current_user_can( 'manage_woocommerce' ) ) {
-		wp_send_json_error( 'Permission denied' );
+		wp_send_json_error( __( 'Permission denied.', 'speedy-modern' ) );
 	}
 
 	$term = isset( $_GET['term'] ) ? sanitize_text_field( $_GET['term'] ) : '';
@@ -356,7 +568,7 @@ function speedy_modern_search_cities(): void {
 	$password = $credentials['password'] ?? '';
 
 	if ( empty( $username ) || empty( $password ) ) {
-		wp_send_json_error( 'No API credentials found.' );
+		wp_send_json_error( __( 'No API credentials found.', 'speedy-modern' ) );
 	}
 
 	// Call Speedy API
@@ -407,7 +619,7 @@ add_action( 'wp_ajax_speedy_modern_search_offices', 'speedy_modern_search_office
 function speedy_modern_search_offices(): void {
 	// Check permissions
 	if ( ! current_user_can( 'manage_woocommerce' ) ) {
-		wp_send_json_error( 'Permission denied' );
+		wp_send_json_error( __( 'Permission denied.', 'speedy-modern' ) );
 	}
 
 	$term = isset( $_GET['term'] ) ? sanitize_text_field( $_GET['term'] ) : '';
@@ -434,7 +646,7 @@ function speedy_modern_search_offices(): void {
 		
 		wp_send_json( [ 'results' => $results ] );
 	} else {
-		wp_send_json_error( 'Class WC_Speedy_Modern_Method not found.' );
+		wp_send_json_error( __( 'Class WC_Speedy_Modern_Method not found.', 'speedy-modern' ) );
 	}
 }
 
@@ -445,24 +657,24 @@ add_action( 'wp_ajax_speedy_modern_upload_file', 'speedy_modern_upload_file' );
 function speedy_modern_upload_file(): void {
 	// Check permissions
 	if ( ! current_user_can( 'manage_woocommerce' ) ) {
-		wp_send_json_error( 'Permission denied' );
+		wp_send_json_error( __( 'Permission denied.', 'speedy-modern' ) );
 	}
 
 	if ( ! isset( $_FILES['file'] ) || empty( $_FILES['file']['name'] ) ) {
-		wp_send_json_error( 'No file uploaded.' );
+		wp_send_json_error( __( 'No file uploaded.', 'speedy-modern' ) );
 	}
 
 	$file = $_FILES['file'];
 
 	// Check for upload errors
 	if ( $file['error'] !== UPLOAD_ERR_OK ) {
-		wp_send_json_error( 'Upload error: ' . $file['error'] );
+		wp_send_json_error( __( 'Upload error: ', 'speedy-modern' ) . $file['error'] );
 	}
 
 	// Validate file type (CSV)
 	$file_type = wp_check_filetype( $file['name'] );
 	if ( 'csv' !== $file_type['ext'] ) {
-		wp_send_json_error( 'Invalid file type. Please upload a CSV file.' );
+		wp_send_json_error( __( 'Invalid file type. Please upload a CSV file.', 'speedy-modern' ) );
 	}
 
 	// Define upload directory
@@ -488,7 +700,7 @@ function speedy_modern_upload_file(): void {
 			'name' => basename( $target_file )
 		] );
 	} else {
-		wp_send_json_error( 'Failed to move uploaded file.' );
+		wp_send_json_error( __( 'Failed to move uploaded file.', 'speedy-modern' ) );
 	}
 }
 
@@ -578,6 +790,52 @@ function speedy_modern_get_region_map(): array {
 }
 
 /**
+ * AJAX Handler: Save cart Speedy selections to WC session.
+ * Called from cart.js whenever the user changes state, city, delivery type, or office.
+ * This ensures the data persists to the checkout page even without clicking "Update Cart".
+ */
+add_action( 'wp_ajax_speedy_modern_save_cart_selection', 'speedy_modern_save_cart_selection_ajax' );
+add_action( 'wp_ajax_nopriv_speedy_modern_save_cart_selection', 'speedy_modern_save_cart_selection_ajax' );
+
+function speedy_modern_save_cart_selection_ajax(): void {
+	if ( ! WC()->session ) {
+		wp_send_json_error( 'No session' );
+	}
+
+	$state         = isset( $_POST['state'] ) ? sanitize_text_field( $_POST['state'] ) : '';
+	$city_id       = isset( $_POST['city_id'] ) ? absint( $_POST['city_id'] ) : 0;
+	$delivery_type = isset( $_POST['delivery_type'] ) ? sanitize_text_field( $_POST['delivery_type'] ) : 'address';
+	$office_id     = isset( $_POST['office_id'] ) ? absint( $_POST['office_id'] ) : 0;
+
+	if ( $state ) {
+		WC()->session->set( 'speedy_modern_state', $state );
+	}
+	if ( $city_id ) {
+		WC()->session->set( 'speedy_modern_city_id', $city_id );
+	}
+	if ( $delivery_type ) {
+		WC()->session->set( 'speedy_modern_delivery_type', $delivery_type );
+	}
+	WC()->session->set( 'speedy_modern_office_id', $office_id );
+
+	// Also update the WC customer so checkout form fields are pre-filled
+	if ( WC()->customer ) {
+		if ( $state ) {
+			WC()->customer->set_shipping_state( $state );
+			WC()->customer->set_billing_state( $state );
+		}
+		if ( $city_id ) {
+			$city_name = speedy_modern_get_city_name( $city_id );
+			WC()->customer->set_shipping_city( $city_name ?: $city_id );
+			WC()->customer->set_billing_city( $city_name ?: $city_id );
+		}
+		WC()->customer->save();
+	}
+
+	wp_send_json_success();
+}
+
+/**
  * AJAX Handler: Get cities for a specific region.
  * Used by checkout.js
  */
@@ -588,7 +846,7 @@ function speedy_modern_get_cities_ajax(): void {
 	$region_code = isset( $_POST['region'] ) ? sanitize_text_field( $_POST['region'] ) : '';
 	
 	if ( empty( $region_code ) ) {
-		wp_send_json_error( 'Missing region code' );
+		wp_send_json_error( __( 'Missing region code', 'speedy-modern' ) );
 	}
 
 	global $wpdb;
@@ -600,7 +858,7 @@ function speedy_modern_get_cities_ajax(): void {
 	$region_name = $region_map[ $region_code ] ?? '';
 
 	if ( empty( $region_name ) ) {
-		wp_send_json_error( 'Unknown region code' );
+		wp_send_json_error( __( 'Unknown region code', 'speedy-modern' ) );
 	}
 
 	// Exact match for Sofia regions, LIKE for others
@@ -640,7 +898,7 @@ function speedy_modern_check_availability_ajax(): void {
 	$city_id = isset( $_POST['city_id'] ) ? absint( $_POST['city_id'] ) : 0;
 
 	if ( ! $city_id ) {
-		wp_send_json_error( 'Missing city ID' );
+		wp_send_json_error( __( 'Missing city ID', 'speedy-modern' ) );
 	}
 
 	global $wpdb;
@@ -663,13 +921,7 @@ function speedy_modern_check_availability_ajax(): void {
 			'label' => sprintf( '%s %s - %s', $row->id, $row->name, $row->address )
 		];
 
-		// Speedy types: 
-		// APT = Automat (APS)
-		// OFFICE = Standard Office
-		// We need to check the exact type codes Speedy uses. 
-		// Usually 'APT' or 'APS' is automat.
-		
-		if ( stripos( $row->office_type, 'APT' ) !== false || stripos( $row->office_type, 'APS' ) !== false ) {
+		if ( speedy_modern_is_automat( $row->office_type, $row->name ) ) {
 			$automats[] = $item;
 		} else {
 			$offices[] = $item;
@@ -695,7 +947,7 @@ function speedy_modern_get_region_by_city_ajax(): void {
 	$city_id = isset( $_POST['city_id'] ) ? absint( $_POST['city_id'] ) : 0;
 
 	if ( ! $city_id ) {
-		wp_send_json_error( 'Missing city ID' );
+		wp_send_json_error( __( 'Missing city ID', 'speedy-modern' ) );
 	}
 
 	global $wpdb;
@@ -709,7 +961,7 @@ function speedy_modern_get_region_by_city_ajax(): void {
 	);
 
 	if ( ! $region_name ) {
-		wp_send_json_error( 'City not found' );
+		wp_send_json_error( __( 'City not found', 'speedy-modern' ) );
 	}
 
 	// Use helper function and flip it for reverse mapping
@@ -732,7 +984,7 @@ function speedy_modern_get_region_by_city_ajax(): void {
 	if ( $region_code ) {
 		wp_send_json_success( [ 'region' => $region_code ] );
 	} else {
-		wp_send_json_error( 'Region mapping not found for: ' . $region_name );
+		wp_send_json_error( __( 'Region mapping not found for: ', 'speedy-modern' ) . $region_name );
 	}
 }
 
@@ -859,13 +1111,13 @@ function speedy_modern_select_service_ajax(): void {
 	$service_id = isset( $_POST['service_id'] ) ? absint( $_POST['service_id'] ) : 0;
 
 	if ( ! $service_id || ! WC()->session ) {
-		wp_send_json_error( 'Invalid service ID' );
+		wp_send_json_error( __( 'Invalid service ID', 'speedy-modern' ) );
 	}
 
 	$service_options = WC()->session->get( 'speedy_modern_service_options', [] );
 
 	if ( ! isset( $service_options[ $service_id ] ) ) {
-		wp_send_json_error( 'Service not available' );
+		wp_send_json_error( __( 'Service not available', 'speedy-modern' ) );
 	}
 
 	$selected = $service_options[ $service_id ];
@@ -902,7 +1154,7 @@ add_action( 'wp_ajax_nopriv_speedy_modern_get_services', 'speedy_modern_get_serv
 
 function speedy_modern_get_services_ajax(): void {
 	if ( ! WC()->session ) {
-		wp_send_json_error( 'No session' );
+		wp_send_json_error( __( 'No session', 'speedy-modern' ) );
 	}
 
 	$service_options = WC()->session->get( 'speedy_modern_service_options', [] );
@@ -927,4 +1179,69 @@ function speedy_modern_save_order_meta( $order_id ): void {
 	if ( ! empty( $_POST['speedy_office_id'] ) ) {
 		update_post_meta( $order_id, '_speedy_office_id', sanitize_text_field( $_POST['speedy_office_id'] ) );
 	}
+}
+
+/**
+ * AJAX Handler: Update cart selection for Speedy.
+ */
+add_action( 'wp_ajax_speedy_modern_update_cart_selection', 'speedy_modern_update_cart_selection' );
+add_action( 'wp_ajax_nopriv_speedy_modern_update_cart_selection', 'speedy_modern_update_cart_selection' );
+
+function speedy_modern_update_cart_selection(): void {
+	$delivery_type = isset( $_POST['delivery_type'] ) ? sanitize_text_field( $_POST['delivery_type'] ) : 'address';
+	$city_id       = isset( $_POST['city_id'] ) ? absint( $_POST['city_id'] ) : 0;
+	$state         = isset( $_POST['state'] ) ? sanitize_text_field( $_POST['state'] ) : '';
+
+	if ( ! WC()->session ) {
+		wp_send_json_error();
+	}
+
+	WC()->session->set( 'speedy_modern_delivery_type', $delivery_type );
+	
+	if ( ! empty( $state ) ) {
+		WC()->session->set( 'speedy_modern_state', $state );
+		if ( WC()->customer ) {
+			WC()->customer->set_shipping_state( $state );
+			WC()->customer->set_billing_state( $state );
+		}
+	}
+
+	if ( $city_id > 0 ) {
+		WC()->session->set( 'speedy_modern_city_id', $city_id );
+
+		if ( WC()->customer ) {
+			$city_name = speedy_modern_get_city_name( $city_id );
+			WC()->customer->set_shipping_city( $city_name ?: $city_id );
+			WC()->customer->set_billing_city( $city_name ?: $city_id );
+		}
+	} else {
+		$city_id = absint( WC()->session->get( 'speedy_modern_city_id', 0 ) );
+	}
+
+	if ( WC()->customer ) {
+		WC()->customer->save();
+	}
+	
+	if ( 'office' === $delivery_type || 'automat' === $delivery_type ) {
+		$office_id = WC_Speedy_Modern_Method::get_first_available_office( $city_id, $delivery_type );
+		WC()->session->set( 'speedy_modern_office_id', $office_id );
+	} else {
+		WC()->session->set( 'speedy_modern_office_id', 0 );
+	}
+
+	// Check office/automat availability for this city so the JS can
+	// update the radio buttons without a separate AJAX call.
+	$availability = speedy_modern_check_city_availability( $city_id );
+
+	// Clear shipping cache
+	$packages = WC()->cart ? WC()->cart->get_shipping_packages() : [];
+	foreach ( $packages as $key => $package ) {
+		WC()->session->set( 'shipping_for_package_' . $key, false );
+	}
+
+	wp_send_json_success([
+		'current_type' => $delivery_type,
+		'has_office'   => $availability['has_office'],
+		'has_automat'  => $availability['has_automat'],
+	]);
 }

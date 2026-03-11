@@ -47,7 +47,7 @@ class Speedy_Modern_Syncer {
 		if ( empty( $username ) || empty( $password ) ) {
 			// Log error: Credentials missing
 			if ( class_exists( 'WC_Logger' ) ) {
-				wc_get_logger()->error( 'Speedy Sync Failed: Missing credentials.', array( 'source' => 'speedy-modern' ) );
+				wc_get_logger()->error( __( 'Speedy Sync Failed: Missing credentials.', 'speedy-modern-shipping' ), array( 'source' => 'speedy-modern' ) );
 			}
 			return;
 		}
@@ -87,7 +87,7 @@ class Speedy_Modern_Syncer {
 
 		if ( $error ) {
 			if ( class_exists( 'WC_Logger' ) ) {
-				wc_get_logger()->error( 'Speedy Cities Sync Error: ' . $error, array( 'source' => 'speedy-modern' ) );
+				wc_get_logger()->error( __( 'Speedy Cities Sync Error: ', 'speedy-modern-shipping' ) . $error, array( 'source' => 'speedy-modern' ) );
 			}
 			return;
 		}
@@ -139,7 +139,7 @@ class Speedy_Modern_Syncer {
 		}
 
 		if ( class_exists( 'WC_Logger' ) ) {
-			wc_get_logger()->info( 'Speedy Cities Sync Completed. Count: ' . $count, array( 'source' => 'speedy-modern' ) );
+			wc_get_logger()->info( __( 'Speedy Cities Sync Completed. Count: ', 'speedy-modern-shipping' ) . $count, array( 'source' => 'speedy-modern' ) );
 		}
 	}
 
@@ -170,7 +170,7 @@ class Speedy_Modern_Syncer {
 
 		if ( $error ) {
 			if ( class_exists( 'WC_Logger' ) ) {
-				wc_get_logger()->error( 'Speedy Offices Sync Error: ' . $error, array( 'source' => 'speedy-modern' ) );
+				wc_get_logger()->error( __( 'Speedy Offices Sync Error: ', 'speedy-modern-shipping' ) . $error, array( 'source' => 'speedy-modern' ) );
 			}
 			return;
 		}
@@ -205,7 +205,7 @@ class Speedy_Modern_Syncer {
 			}
 
 			if ( class_exists( 'WC_Logger' ) ) {
-				wc_get_logger()->info( 'Speedy Offices Sync Completed. Count: ' . count($data['offices']), array( 'source' => 'speedy-modern' ) );
+				wc_get_logger()->info( __( 'Speedy Offices Sync Completed. Count: ', 'speedy-modern-shipping' ) . count($data['offices']), array( 'source' => 'speedy-modern' ) );
 			}
 		}
 	}

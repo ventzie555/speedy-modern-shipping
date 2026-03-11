@@ -91,7 +91,7 @@ class Speedy_Modern_Actions {
 		error_log( 'Speedy Modern: Cancel API response (HTTP ' . $http_code . ') – ' . wp_remote_retrieve_body( $response ) );
 
 		if ( $http_code >= 400 || isset( $body['error'] ) ) {
-			wp_send_json_error( $body['error']['message'] ?? 'API Error' );
+			wp_send_json_error( $body['error']['message'] ?? __( 'API Error', 'speedy-modern' ) );
 		}
 
 		// Success: Clear meta
@@ -174,7 +174,7 @@ class Speedy_Modern_Actions {
 		$is_already_ordered = ( 'consignments.consignment_is_ordered' === $error_context );
 
 		if ( $http_code >= 400 || ( isset( $body['error'] ) && ! $is_already_ordered ) ) {
-			wp_send_json_error( $body['error']['message'] ?? 'API Error' );
+			wp_send_json_error( $body['error']['message'] ?? __( 'API Error', 'speedy-modern' ) );
 		}
 
 		$order->update_meta_data( '_speedy_courier_requested', 'yes' );
