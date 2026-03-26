@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Modern Shipping for Speedy
- * Plugin URI:  https://drusoft.dev/speedy-modern-shipping
+ * Plugin URI:  https://github.com/ventzie555/speedy-modern-shipping
  * Description: A clean, conflict-free Speedy integration for Bulgaria.
  * Version:     1.0.0
  * Author:      DRUSOFT LTD
