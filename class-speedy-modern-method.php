@@ -1,4 +1,4 @@
-<?php /** @noinspection ALL */
+<?php
 /**
  * Speedy Modern Shipping Method Class
  *
