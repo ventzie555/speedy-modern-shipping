@@ -1,6 +1,6 @@
 <?php
 /**
- * Speedy Modern Shipping Method Class
+ * Drusoft Speedy Shipping Method Class
  *
  * @copyright 2026 DRUSOFT LTD.
  * @license GPL-2.0-or-later
@@ -10,9 +10,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
+if ( ! class_exists( 'Drushfo_Shipping_Method' ) ) {
 
-	class WC_Speedy_Modern_Method extends WC_Shipping_Method {
+	class Drushfo_Shipping_Method extends WC_Shipping_Method {
 
 		/**
 		 * Constructor for the shipping class
@@ -21,10 +21,10 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			// Fixes the "Missing parent constructor call" warning
 			parent::__construct( $instance_id );
 
-			$this->id                 = 'speedy_modern';
+			$this->id                 = 'drushfo_speedy';
 			$this->instance_id        = absint( $instance_id );
-			$this->method_title       = __( 'Speedy Modern', 'modern-shipping-for-speedy' );
-			$this->method_description = __( 'Fresh, conflict-free Speedy delivery for Bulgaria.', 'modern-shipping-for-speedy' );
+			$this->method_title       = __( 'Drusoft Shipping for Speedy', 'drusoft-shipping-for-speedy' );
+			$this->method_description = __( 'Fresh, conflict-free Speedy delivery for Bulgaria.', 'drusoft-shipping-for-speedy' );
 
 			$this->supports = array(
 				'shipping-zones',
@@ -45,7 +45,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			$this->init_settings();
 
 			// Define user-set variables
-			$this->title = $this->get_option( 'title', __( 'Speedy Delivery', 'modern-shipping-for-speedy' ) );
+			$this->title = $this->get_option( 'title', __( 'Speedy Delivery', 'drusoft-shipping-for-speedy' ) );
 
 			// Save settings in admin
 			add_action( 'woocommerce_update_options_shipping_' . $this->id, array( $this, 'process_admin_options' ) );
@@ -78,15 +78,15 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			}
 
 			// 2. Get the selected service from session (set by our service selector)
-			$chosen_service_id = WC()->session ? (int) WC()->session->get( 'speedy_modern_selected_service', 0 ) : 0;
+			$chosen_service_id = WC()->session ? (int) WC()->session->get( 'drushfo_selected_service', 0 ) : 0;
 
 			// 3. Try to get the service-specific session data first, fallback to general
 			$session_data = null;
 			if ( $chosen_service_id && WC()->session ) {
-				$session_data = WC()->session->get( 'speedy_modern_shipping_data_' . $chosen_service_id );
+				$session_data = WC()->session->get( 'drushfo_shipping_data_' . $chosen_service_id );
 			}
 			if ( empty( $session_data ) ) {
-				$session_data = WC()->session ? WC()->session->get( 'speedy_modern_shipping_data' ) : null;
+				$session_data = WC()->session ? WC()->session->get( 'drushfo_shipping_data' ) : null;
 			}
 
 			if ( ! empty( $session_data ) ) {
@@ -97,10 +97,10 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				}
 
 				// 4. Save to order meta
-				$order->add_meta_data( '_speedy_order_data', $session_data );
+				$order->add_meta_data( '_drushfo_order_data', $session_data );
 
 				if ( isset( $session_data['recipient']['pickupOfficeId'] ) ) {
-					$order->add_meta_data( '_speedy_office_id', $session_data['recipient']['pickupOfficeId'] );
+					$order->add_meta_data( '_drushfo_office_id', $session_data['recipient']['pickupOfficeId'] );
 				}
 			}
 		}
@@ -148,12 +148,12 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				if ( is_wp_error( $validation ) ) {
 					$error_message = sprintf(
 						/* translators: %s: error message from the Speedy API */
-						__( 'Speedy API authentication failed: %s', 'modern-shipping-for-speedy' ),
+						__( 'Speedy API authentication failed: %s', 'drusoft-shipping-for-speedy' ),
 						$validation->get_error_message()
 					);
 
 					$this->add_error(
-						$error_message . ' ' . __( 'Credentials have been cleared.', 'modern-shipping-for-speedy' )
+						$error_message . ' ' . __( 'Credentials have been cleared.', 'drusoft-shipping-for-speedy' )
 					);
 
 					// Blank out the credentials in the post data so they save as empty
@@ -190,15 +190,24 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			$saved = parent::process_admin_options();
 			$this->clear_speedy_cache();
 
-			// Trigger background sync if credentials are present
-			if ( $saved && $this->get_option('speedy_username') && $this->get_option('speedy_password') ) {
-				if ( function_exists( 'as_schedule_single_action' ) ) {
-					// Cancel any pending sync to avoid duplicates
-					if ( function_exists( 'as_unschedule_action' ) ) {
-						as_unschedule_action( 'speedy_modern_sync_locations_event' );
+			if ( $saved && $this->get_option( 'speedy_username' ) && $this->get_option( 'speedy_password' ) ) {
+				// Sync only when the tables are empty (first-time setup).
+				// Cities and offices are the same for every Speedy account.
+				global $wpdb;
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				$cities_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$wpdb->prefix}drushfo_cities" );
+
+				if ( 0 === $cities_count ) {
+					if ( class_exists( 'Drushfo_Syncer' ) ) {
+						Drushfo_Syncer::sync();
 					}
-					// Schedule new sync immediately
-					as_schedule_single_action( time(), 'speedy_modern_sync_locations_event' );
+				}
+
+				// Ensure a recurring daily refresh is scheduled.
+				if ( ! as_next_scheduled_action( 'drushfo_sync_locations_event' ) ) {
+					if ( function_exists( 'as_schedule_recurring_action' ) ) {
+						as_schedule_recurring_action( time() + DAY_IN_SECONDS, DAY_IN_SECONDS, 'drushfo_sync_locations_event' );
+					}
 				}
 			}
 
@@ -243,7 +252,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			if ( 401 === $code || ( isset( $data['error'] ) ) ) {
 				$api_message = $data['error']['message']
 					?? $data['error']
-					?? __( 'Invalid username or password.', 'modern-shipping-for-speedy' );
+					?? __( 'Invalid username or password.', 'drusoft-shipping-for-speedy' );
 
 				return new WP_Error( 'speedy_auth_failed', $api_message );
 			}
@@ -254,7 +263,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					'speedy_api_error',
 					sprintf(
 						/* translators: %d: HTTP status code */
-						__( 'Unexpected API response (HTTP %d).', 'modern-shipping-for-speedy' ),
+						__( 'Unexpected API response (HTTP %d).', 'drusoft-shipping-for-speedy' ),
 						$code
 					)
 				);
@@ -267,7 +276,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 			return new WP_Error(
 				'speedy_unexpected_response',
-				__( 'The API returned an unexpected response. Please check your credentials.', 'modern-shipping-for-speedy' )
+				__( 'The API returned an unexpected response. Please check your credentials.', 'drusoft-shipping-for-speedy' )
 			);
 		}
 
@@ -296,6 +305,27 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
          * @return string
          */
 		public function validate_sender_office_field( string $_key, string $value ): string {
+			$office_id = absint( $value );
+			if ( $office_id <= 0 ) {
+				return sanitize_text_field( $value );
+			}
+
+			// Reject automats — they cannot be used as sender drop-off points.
+			global $wpdb;
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$row = $wpdb->get_row(
+				$wpdb->prepare(
+					"SELECT office_type, name FROM {$wpdb->prefix}drushfo_offices WHERE id = %d",
+					$office_id
+				)
+			);
+			if ( $row && drushfo_is_automat( $row->office_type, $row->name ) ) {
+				WC_Admin_Settings::add_error(
+					__( 'Automats (APT/APS) cannot be used as sender drop-off offices. Please select a regular Speedy office.', 'drusoft-shipping-for-speedy' )
+				);
+				return '';
+			}
+
 			return sanitize_text_field( $value );
 		}
 
@@ -307,27 +337,27 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			$this->instance_form_fields = array(
 				// --- SECTION: CONNECTION ---
 				'section_api' => [
-					'title' => __( 'Speedy API Connection', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Speedy API Connection', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'title',
 				],
 				'enabled' => [
-					'title'   => __( 'Module Status', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Module Status', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'checkbox',
-					'label'   => __( 'Enable/Disable', 'modern-shipping-for-speedy' ),
+					'label'   => __( 'Enable/Disable', 'drusoft-shipping-for-speedy' ),
 					'default' => 'yes',
 				],
 				'title' => [
-					'title'       => __( 'Method Title', 'modern-shipping-for-speedy' ),
+					'title'       => __( 'Method Title', 'drusoft-shipping-for-speedy' ),
 					'type'        => 'text',
-					'default'     => __( 'Speedy Delivery', 'modern-shipping-for-speedy' ),
+					'default'     => __( 'Speedy Delivery', 'drusoft-shipping-for-speedy' ),
 					'desc_tip'    => true,
 				],
 				'speedy_username' => [
-					'title' => __( 'Username', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Username', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'text'
 				],
 				'speedy_password' => [
-					'title' => __( 'Password', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Password', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'password',
 				],
 			);
@@ -338,7 +368,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			} else {
 				$this->instance_form_fields['info_msg'] = [
 					'type'        => 'title',
-					'description' => __( 'Please save your credentials to unlock shipping options.', 'modern-shipping-for-speedy' ),
+					'description' => __( 'Please save your credentials to unlock shipping options.', 'drusoft-shipping-for-speedy' ),
 				];
 			}
 		}
@@ -349,7 +379,12 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 */
 		private function add_authenticated_fields(): void {
 			
-			$current_city = $this->get_instance_option( 'sender_city' );
+			// Read directly from saved settings to avoid WC looking up defaults
+			// from form fields that haven't been defined yet (chicken-and-egg).
+			if ( empty( $this->instance_settings ) ) {
+				$this->init_instance_settings();
+			}
+			$current_city = (int) ( $this->instance_settings['sender_city'] ?? 0 );
 			
 			// Workaround: If a new city is posted, add it to options so validation passes
 			// even if validate_sender_city_field is somehow bypassed or fails.
@@ -363,7 +398,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				}
 			}
 
-			$current_office = $this->get_instance_option( 'sender_office' );
+			$current_office = (int) ( $this->instance_settings['sender_office'] ?? 0 );
 			$field_key_office = $this->get_field_key( 'sender_office' );
 			// phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verified by WooCommerce in process_admin_options.
 			if ( isset( $_POST[ $field_key_office ] ) ) {
@@ -378,110 +413,116 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 				// --- SECTION: SENDER DETAILS ---
 				'section_sender' => [
-					'title' => __( 'Sender Information', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Sender Information', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'title',
 				],
 				'sender_id' => [
-					'title'   => __( 'Sender (Object)', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Sender (Object)', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'options' => $this->get_speedy_clients(),
 				],
 				'sender_name' => [
-					'title' => __( 'Contact Person', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Contact Person', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'text'
 				],
 				'sender_email' => [
-					'title' => __( 'Email', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Email', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'email'
 				],
 				'sender_phone' => [
-					'title' => __( 'Phone Number', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Phone Number', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'text'
 				],
 				'sender_city' => [
-					'title'   => __( 'City', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'City', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'class'   => 'speedy-city-search',
-					'options' => [ $current_city => speedy_modern_get_city_name_by_id( $current_city ) ],
+					'options' => [ $current_city => drushfo_get_city_name_by_id( $current_city ) ],
 					'custom_attributes' => [
-						'data-placeholder' => __( 'Search for a city...', 'modern-shipping-for-speedy' ),
+						'data-placeholder' => __( 'Search for a city...', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'sender_officeyesno' => [
-					'title'   => __( 'Send from Office', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Send from Office', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'sender_office' => [
-					'title'   => __( 'Shipping from Office', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Shipping from Office', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'class'   => 'speedy-office-search',
-					'options' => [ $current_office => speedy_modern_get_office_label_by_id( $current_office ) ],
+					'options' => [ $current_office => drushfo_get_office_label_by_id( $current_office ) ],
 					'custom_attributes' => [
-						'data-placeholder' => __( 'Search for an office...', 'modern-shipping-for-speedy' ),
+						'data-placeholder' => __( 'Search for an office...', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'sender_time' => [
-					'title'       => __( 'Working Day End Time', 'modern-shipping-for-speedy' ),
+					'title'       => __( 'Working Day End Time', 'drusoft-shipping-for-speedy' ),
 					'type'        => 'text',
 					'placeholder' => '17:30',
-					'description' => __( 'Format HH:MM', 'modern-shipping-for-speedy' ),
+					'description' => __( 'Format HH:MM', 'drusoft-shipping-for-speedy' ),
 				],
 
 				// --- SECTION: SHIPMENT SETTINGS ---
 				'section_shipment' => [
-					'title' => __( 'Shipment Settings', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Shipment Settings', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'title',
 				],
 				'uslugi' => [
-					'title'    => __( 'Active Services', 'modern-shipping-for-speedy' ),
+					'title'    => __( 'Active Services', 'drusoft-shipping-for-speedy' ),
 					'type'     => 'multiselect',
 					'options'  => $this->get_speedy_services(),
 					'default'  => '505',
 				],
-				'opakovka' => [
-					'title'   => __( 'Packaging', 'modern-shipping-for-speedy' ),
-					'type'    => 'text',
-					'default' => 'BOX'
+			'opakovka' => [
+				'title'       => __( 'Packaging', 'drusoft-shipping-for-speedy' ),
+				'type'        => 'select',
+				'default'     => 'BOX',
+				'description' => __( 'Pallet is only available for pallet services and cannot be used with automat delivery. For automats the plugin will automatically fall back to Box.', 'drusoft-shipping-for-speedy' ),
+				'options'     => [
+					'ENVELOPE' => __( 'Envelope', 'drusoft-shipping-for-speedy' ),
+					'BOX'      => __( 'Box', 'drusoft-shipping-for-speedy' ),
+					'PALLET'   => __( 'Pallet', 'drusoft-shipping-for-speedy' ),
 				],
+			],
 				'teglo' => [
-					'title'   => __( 'Default Weight', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Default Weight', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'number',
 					'default' => '1'
 				],
 				'obqvena' => [
-					'title'   => __( 'Declared Value', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Declared Value', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'chuplivost' => [
-					'title'   => __( 'Fragile', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Fragile', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'saturdayoption' => [
-					'title'   => __( 'Saturday Delivery', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Saturday Delivery', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'special_requirements' => [
-					'title'    => __( 'Special Requirements', 'modern-shipping-for-speedy' ),
+					'title'    => __( 'Special Requirements', 'drusoft-shipping-for-speedy' ),
 					'type'     => 'select',
 					'default'  => '0',
 					'options'  => $this->get_speedy_special_requirements(),
@@ -489,194 +530,194 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 				// --- SECTION: PRICING & PAYMENT ---
 				'section_pricing' => [
-					'title' => __( 'Pricing & Payment', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Pricing & Payment', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'title',
 				],
 				'cenadostavka' => [
-					'title'   => __( 'Pricing Method', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Pricing Method', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'speedycalculator',
 					'options' => [
-						'speedycalculator' => __( 'Speedy Calculator', 'modern-shipping-for-speedy' ),
-						'fixedprices'      => __( 'Fixed Price', 'modern-shipping-for-speedy' ),
-						'freeshipping'     => __( 'Free Shipping', 'modern-shipping-for-speedy' ),
-						'fileprices'       => __( 'Custom Prices', 'modern-shipping-for-speedy' ),
-						'nadbavka'         => __( 'Calculator + Surcharge', 'modern-shipping-for-speedy' ),
+						'speedycalculator' => __( 'Speedy Calculator', 'drusoft-shipping-for-speedy' ),
+						'fixedprices'      => __( 'Fixed Price', 'drusoft-shipping-for-speedy' ),
+						'freeshipping'     => __( 'Free Shipping', 'drusoft-shipping-for-speedy' ),
+						'fileprices'       => __( 'Custom Prices', 'drusoft-shipping-for-speedy' ),
+						'nadbavka'         => __( 'Calculator + Surcharge', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'suma_nadbavka'          => [
-					'title'        => __( 'Surcharge Amount', 'modern-shipping-for-speedy' ),
+					'title'        => __( 'Surcharge Amount', 'drusoft-shipping-for-speedy' ),
 					'type'         => 'number',
 					'custom_class' => 'suma-nadbavka',
 					'custom_attributes' => [ 'step' => '0.01' ],
 				],
 				'fileceni'               => [
-					'title'        => __( 'CSV Price File', 'modern-shipping-for-speedy' ),
+					'title'        => __( 'CSV Price File', 'drusoft-shipping-for-speedy' ),
 					'type'         => 'text', // Changed to text for JS handling
 					'class'        => 'speedy-file-input-wrapper', // Hook for JS
-					'description'  => __( 'Path to CSV file with custom prices', 'modern-shipping-for-speedy' ),
+					'description'  => __( 'Path to CSV file with custom prices', 'drusoft-shipping-for-speedy' ),
 				],
 				'free_shipping' => [
-					'title'       => __( 'Free Shipping', 'modern-shipping-for-speedy' ),
-					'description' => __( 'Sum ABOVE the specified here activates free shipping to office/address. Explanation: If you want users to receive free shipping when reaching X amount - enter it with 0.01 less in the respective field. For example, for free shipping when reaching 100lv - enter 99.99 etc.', 'modern-shipping-for-speedy' ),
+					'title'       => __( 'Free Shipping', 'drusoft-shipping-for-speedy' ),
+					'description' => __( 'Sum ABOVE the specified here activates free shipping to office/address. Explanation: If you want users to receive free shipping when reaching X amount - enter it with 0.01 less in the respective field. For example, for free shipping when reaching 100lv - enter 99.99 etc.', 'drusoft-shipping-for-speedy' ),
 					'type'        => 'checkbox',
 					'default'     => 'no'
 				],
 				'free_shipping_automat'  => [
-					'title'        => __( 'Free Shipping to Automat > Amount', 'modern-shipping-for-speedy' ),
+					'title'        => __( 'Free Shipping to Automat > Amount', 'drusoft-shipping-for-speedy' ),
 					'type'         => 'number',
 					'custom_class' => 'free-shipping-automat',
 					'custom_attributes' => [ 'step' => '0.01' ],
 				],
 				'free_shipping_office'   => [
-					'title'        => __( 'Free Shipping to Office > Amount', 'modern-shipping-for-speedy' ),
+					'title'        => __( 'Free Shipping to Office > Amount', 'drusoft-shipping-for-speedy' ),
 					'type'         => 'number',
 					'custom_class' => 'free-shipping-office',
 					'custom_attributes' => [ 'step' => '0.01' ],
 				],
 				'free_shipping_address'  => [
-					'title'        => __( 'Free Shipping to Address > Amount', 'modern-shipping-for-speedy' ),
+					'title'        => __( 'Free Shipping to Address > Amount', 'drusoft-shipping-for-speedy' ),
 					'type'         => 'number',
 					'custom_class' => 'free-shipping-address',
 					'custom_attributes' => [ 'step' => '0.01' ],
 				],
 				'fixed_shipping' => [
-					'title'       => __( 'Fixed Shipping Price', 'modern-shipping-for-speedy' ),
-					'description' => __( 'Enable fixed shipping price to office/address', 'modern-shipping-for-speedy' ),
+					'title'       => __( 'Fixed Shipping Price', 'drusoft-shipping-for-speedy' ),
+					'description' => __( 'Enable fixed shipping price to office/address', 'drusoft-shipping-for-speedy' ),
 					'type'        => 'checkbox',
 					'default'     => 'no'
 				],
 				'fixed_shipping_automat' => [
-					'title'        => __( 'Fixed Price to Automat', 'modern-shipping-for-speedy' ),
+					'title'        => __( 'Fixed Price to Automat', 'drusoft-shipping-for-speedy' ),
 					'type'         => 'number',
 					'custom_class' => 'fixed-shipping-automat',
 					'custom_attributes' => [ 'step' => '0.01' ],
 				],
 				'fixed_shipping_office' => [
-					'title' => __( 'Fixed Price to Office', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Fixed Price to Office', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'number',
 					'custom_class' => 'fixed-shipping-office',
 					'custom_attributes' => [ 'step' => '0.01' ],
 				],
 				'fixed_shipping_address' => [
-					'title' => __( 'Fixed Price to Address', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Fixed Price to Address', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'number',
 					'custom_class' => 'fixed-shipping-address',
 					'custom_attributes' => [ 'step' => '0.01' ],
 				],
 				'moneytransfer'          => [
-					'title'   => __( 'Money Transfer Type', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Money Transfer Type', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'        => __( 'Cash on Delivery', 'modern-shipping-for-speedy' ),
-						'YES'       => __( 'Postal Money Transfer', 'modern-shipping-for-speedy' ),
-						'fiscal'    => __( 'Fiscal Receipt (Items)', 'modern-shipping-for-speedy' ),
-						'fiscalone' => __( 'Fiscal Receipt (Groups)', 'modern-shipping-for-speedy' )
+						'NO'        => __( 'Cash on Delivery', 'drusoft-shipping-for-speedy' ),
+						'YES'       => __( 'Postal Money Transfer', 'drusoft-shipping-for-speedy' ),
+						'fiscal'    => __( 'Fiscal Receipt (Items)', 'drusoft-shipping-for-speedy' ),
+						'fiscalone' => __( 'Fiscal Receipt (Groups)', 'drusoft-shipping-for-speedy' )
 					],
 				],
 				'includeshippingprice'   => [
-					'title'   => __( 'Include Shipping Price in COD', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Include Shipping Price in COD', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'administrative'         => [
-					'title'   => __( 'Administrative Fee', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Administrative Fee', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 
 				// --- SECTION: WORKFLOW & OPTIONS ---
 				'section_options' => [
-					'title' => __( 'Workflow & Options', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Workflow & Options', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'title',
 				],
 				'generate_waybill' => [
-					'title'       => __( 'Automatic Waybill', 'modern-shipping-for-speedy' ),
-					'description' => __( 'Automatically create waybill on order completion', 'modern-shipping-for-speedy' ),
+					'title'       => __( 'Automatic Waybill', 'drusoft-shipping-for-speedy' ),
+					'description' => __( 'Automatically create waybill on order completion', 'drusoft-shipping-for-speedy' ),
 					'type'        => 'checkbox',
 					'default'     => 'no'
 				],
 				'printer'                => [
-					'title'   => __( 'Label Printer', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Label Printer', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'additionalcopy'         => [
-					'title'   => __( 'Additional Waybill Copy', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Additional Waybill Copy', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'test_before_pay' => [
-					'title'   => __( 'Options Before Payment', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Options Before Payment', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'   => __( 'None', 'modern-shipping-for-speedy' ),
-						'OPEN' => __( 'Open', 'modern-shipping-for-speedy' ),
-						'TEST' => __( 'Test', 'modern-shipping-for-speedy' ),
+						'NO'   => __( 'None', 'drusoft-shipping-for-speedy' ),
+						'OPEN' => __( 'Open', 'drusoft-shipping-for-speedy' ),
+						'TEST' => __( 'Test', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'testplatec'             => [
-					'title'   => __( 'Return Shipment Payer (Test/Open)', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Return Shipment Payer (Test/Open)', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'SENDER',
 					'options' => [
-						'SENDER'    => __( 'Sender', 'modern-shipping-for-speedy' ),
-						'RECIPIENT' => __( 'Recipient', 'modern-shipping-for-speedy' ),
+						'SENDER'    => __( 'Sender', 'drusoft-shipping-for-speedy' ),
+						'RECIPIENT' => __( 'Recipient', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'autoclose'              => [
-					'title'   => __( 'Auto Close Options at Automat', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Auto Close Options at Automat', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 
 				// --- SECTION: RETURNS & VOUCHERS ---
 				'section_returns' => [
-					'title' => __( 'Returns & Vouchers', 'modern-shipping-for-speedy' ),
+					'title' => __( 'Returns & Vouchers', 'drusoft-shipping-for-speedy' ),
 					'type'  => 'title',
 				],
 				'vaucher' => [
-					'title'   => __( 'Return Voucher', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Return Voucher', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'NO',
 					'options' => [
-						'NO'  => __( 'No', 'modern-shipping-for-speedy' ),
-						'YES' => __( 'Yes', 'modern-shipping-for-speedy' ),
+						'NO'  => __( 'No', 'drusoft-shipping-for-speedy' ),
+						'YES' => __( 'Yes', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'vaucherpayer' => [
-					'title'   => __( 'Return Payer', 'modern-shipping-for-speedy' ),
+					'title'   => __( 'Return Payer', 'drusoft-shipping-for-speedy' ),
 					'type'    => 'select',
 					'default' => 'SENDER',
 					'options' => [
-						'SENDER'    => __( 'Sender', 'modern-shipping-for-speedy' ),
-						'RECIPIENT' => __( 'Recipient', 'modern-shipping-for-speedy' ),
+						'SENDER'    => __( 'Sender', 'drusoft-shipping-for-speedy' ),
+						'RECIPIENT' => __( 'Recipient', 'drusoft-shipping-for-speedy' ),
 					],
 				],
 				'vaucherpayerdays'       => [
-					'title'        => __( 'Voucher Validity (Days)', 'modern-shipping-for-speedy' ),
+					'title'        => __( 'Voucher Validity (Days)', 'drusoft-shipping-for-speedy' ),
 					'type'         => 'number',
 				],
 			];
@@ -690,7 +731,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * @return array Associative array of [clientId => Client Details]
 		 */
 		private function get_speedy_clients(): array {
-			$cache_key = 'speedy_clients_cache_' . md5( $this->get_option( 'speedy_username' ) );
+			$cache_key = 'drushfo_clients_cache_' . md5( $this->get_option( 'speedy_username' ) );
 			$clients   = get_transient( $cache_key );
 
 			// If cache exists, return it immediately
@@ -698,7 +739,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				return $clients;
 			}
 
-			$clients = [ '0' => __( '-- Select Client --', 'modern-shipping-for-speedy' ) ];
+			$clients = [ '0' => __( '-- Select Client --', 'drusoft-shipping-for-speedy' ) ];
 
 			$username = $this->get_option( 'speedy_username' );
 			$password = $this->get_option( 'speedy_password' );
@@ -729,7 +770,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 					$clients[ $client_id ] = sprintf(
 					/* translators: 1: ID, 2: Name, 3: Object, 4: Address */
-						__( 'ID: %1$s, %2$s, %3$s, Address: %4$s', 'modern-shipping-for-speedy' ),
+						__( 'ID: %1$s, %2$s, %3$s, Address: %4$s', 'drusoft-shipping-for-speedy' ),
 						$client_id,
 						$client_name,
 						$object_name,
@@ -763,7 +804,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 				return (int) $wpdb->get_var(
 					$wpdb->prepare(
-						"SELECT id FROM {$wpdb->prefix}speedy_offices WHERE city_id = %d AND (office_type IN ('APT', 'APS') OR name LIKE %s OR name LIKE %s OR name LIKE %s) LIMIT 1",
+						"SELECT id FROM {$wpdb->prefix}drushfo_offices WHERE city_id = %d AND (office_type IN ('APT', 'APS') OR name LIKE %s OR name LIKE %s OR name LIKE %s) LIMIT 1",
 						$city_id,
 						$like_automat,
 						$like_aps,
@@ -775,7 +816,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			return (int) $wpdb->get_var(
 				$wpdb->prepare(
-					"SELECT id FROM {$wpdb->prefix}speedy_offices WHERE city_id = %d AND (office_type NOT IN ('APT', 'APS') AND name NOT LIKE %s AND name NOT LIKE %s AND name NOT LIKE %s) LIMIT 1",
+					"SELECT id FROM {$wpdb->prefix}drushfo_offices WHERE city_id = %d AND (office_type NOT IN ('APT', 'APS') AND name NOT LIKE %s AND name NOT LIKE %s AND name NOT LIKE %s) LIMIT 1",
 					$city_id,
 					$like_automat,
 					$like_aps,
@@ -792,8 +833,8 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * @param string|null $term
 		 * @return array Associative array of [officeId => "Name - Address"]
 		 */
-		public static function get_speedy_offices( ?string $username = null, ?string $password = null, ?string $term = null ): array {
-			$offices = [ '0' => __( '-- Select Office --', 'modern-shipping-for-speedy' ) ];
+		public static function get_speedy_offices( ?string $username = null, ?string $password = null, ?string $term = null, bool $exclude_automats = false ): array {
+			$offices = [ '0' => __( '-- Select Office --', 'drusoft-shipping-for-speedy' ) ];
 
 			// Try to fetch from local DB first
 			global $wpdb;
@@ -801,26 +842,11 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			// Check if table exists and has data
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			$table_exists = $wpdb->get_var(
-				$wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->prefix . 'speedy_offices' )
+				$wpdb->prepare( 'SHOW TABLES LIKE %s', $wpdb->prefix . 'drushfo_offices' )
 			);
 
-			if ( $table_exists === $wpdb->prefix . 'speedy_offices' ) {
-				if ( $term ) {
-					$like_term = '%' . $wpdb->esc_like( $term ) . '%';
-					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-					$db_offices = $wpdb->get_results(
-						$wpdb->prepare(
-							"SELECT id, name, address FROM {$wpdb->prefix}speedy_offices WHERE name LIKE %s OR address LIKE %s ORDER BY name ASC LIMIT 50",
-							$like_term,
-							$like_term
-						)
-					);
-				} else {
-					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-					$db_offices = $wpdb->get_results(
-						"SELECT id, name, address FROM {$wpdb->prefix}speedy_offices ORDER BY name ASC LIMIT 50"
-					);
-				}
+			if ( $table_exists === $wpdb->prefix . 'drushfo_offices' ) {
+				$db_offices = self::query_local_offices( $term, $exclude_automats );
 
 				if ( ! empty( $db_offices ) ) {
 					foreach ( $db_offices as $office ) {
@@ -834,7 +860,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 			// If credentials are not provided, try to find them
 			if ( ! $username || ! $password ) {
-				$option_like = 'woocommerce_speedy_modern_%_settings';
+				$option_like = 'woocommerce_drushfo_speedy_%_settings';
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery
 				$rows = $wpdb->get_results(
 					$wpdb->prepare(
@@ -882,6 +908,12 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					$id      = $office['id'];
 					$name    = $office['name'] ?? '';
 					$address = $office['address']['fullAddressString'] ?? '';
+					$type    = $office['type'] ?? '';
+
+					// Skip automats when only real offices are requested
+					if ( $exclude_automats && drushfo_is_automat( $type, $name ) ) {
+						continue;
+					}
 
 					// We store a sort_key to handle Bulgarian (Cyrillic) sorting correctly
 					$temp_offices[ $id ] = [
@@ -905,12 +937,62 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		}
 
 		/**
+		 * Query the local drushfo_offices table with optional search term and automat exclusion.
+		 *
+		 * Separated into its own method so every query path uses $wpdb->prepare()
+		 * with literal SQL — no interpolated variables.
+		 *
+		 * @param string|null $term             Search term (name/address LIKE).
+		 * @param bool        $exclude_automats Whether to exclude APT/APS office types.
+		 * @return array|object[]|null Database results.
+		 */
+		private static function query_local_offices( ?string $term, bool $exclude_automats ): ?array {
+			global $wpdb;
+
+			if ( $term && $exclude_automats ) {
+				$like_term = '%' . $wpdb->esc_like( $term ) . '%';
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+				return $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT id, name, address FROM {$wpdb->prefix}drushfo_offices WHERE (name LIKE %s OR address LIKE %s) AND office_type NOT IN ('APT','APS') ORDER BY name ASC LIMIT 50",
+						$like_term,
+						$like_term
+					)
+				);
+			}
+
+			if ( $term ) {
+				$like_term = '%' . $wpdb->esc_like( $term ) . '%';
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+				return $wpdb->get_results(
+					$wpdb->prepare(
+						"SELECT id, name, address FROM {$wpdb->prefix}drushfo_offices WHERE (name LIKE %s OR address LIKE %s) ORDER BY name ASC LIMIT 50",
+						$like_term,
+						$like_term
+					)
+				);
+			}
+
+			if ( $exclude_automats ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+				return $wpdb->get_results(
+					"SELECT id, name, address FROM {$wpdb->prefix}drushfo_offices WHERE office_type NOT IN ('APT','APS') ORDER BY name ASC LIMIT 50"
+				);
+			}
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			return $wpdb->get_results(
+				"SELECT id, name, address FROM {$wpdb->prefix}drushfo_offices ORDER BY name ASC LIMIT 50"
+			);
+		}
+
+		/**
 		 * Fetch available Speedy services from API
 		 *
 		 * @return array Associative array of [serviceId => "ID - Service Name"]
 		 */
 		private function get_speedy_services(): array {
-			$cache_key = 'speedy_services_cache_' . md5( $this->get_option( 'speedy_username' ) );
+			$cache_key = 'drushfo_services_cache_' . md5( $this->get_option( 'speedy_username' ) );
 			$services_list = get_transient( $cache_key );
 
 			// Return cached data if available
@@ -978,14 +1060,14 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		 * Fetch Special Requirements from Speedy API
 		 */
 		private function get_speedy_special_requirements(): array {
-			$cache_key = 'speedy_requirements_cache_' . md5( $this->get_option( 'speedy_username' ) );
+			$cache_key = 'drushfo_requirements_cache_' . md5( $this->get_option( 'speedy_username' ) );
 			$requirements = get_transient( $cache_key );
 
 			if ( false !== $requirements ) {
 				return $requirements;
 			}
 
-			$requirements = [ '0' => __( '-- None --', 'modern-shipping-for-speedy' ) ];
+			$requirements = [ '0' => __( '-- None --', 'drusoft-shipping-for-speedy' ) ];
 			$username = $this->get_option( 'speedy_username' );
 			$password = $this->get_option( 'speedy_password' );
 
@@ -1026,10 +1108,10 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 		private function clear_speedy_cache(): void {
 			$user_hash = md5( $this->get_option( 'speedy_username' ) );
 
-			delete_transient( 'speedy_clients_cache_' . $user_hash );
-			delete_transient( 'speedy_offices_cache_' . $user_hash );
-			delete_transient( 'speedy_services_cache_' . $user_hash );
-			delete_transient( 'speedy_requirements_cache_' . $user_hash );
+			delete_transient( 'drushfo_clients_cache_' . $user_hash );
+			delete_transient( 'drushfo_offices_cache_' . $user_hash );
+			delete_transient( 'drushfo_services_cache_' . $user_hash );
+			delete_transient( 'drushfo_requirements_cache_' . $user_hash );
 		}
 
 		/**
@@ -1064,10 +1146,10 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 			// Persist selection to session (but NOT the auto-picked office below)
 			if ( WC()->session ) {
-				WC()->session->set( 'speedy_modern_city_id', $city_id );
-				WC()->session->set( 'speedy_modern_delivery_type', $delivery_type );
+				WC()->session->set( 'drushfo_city_id', $city_id );
+				WC()->session->set( 'drushfo_delivery_type', $delivery_type );
 				if ( $office_id > 0 ) {
-					WC()->session->set( 'speedy_modern_office_id', $office_id );
+					WC()->session->set( 'drushfo_office_id', $office_id );
 				}
 			}
 
@@ -1080,15 +1162,15 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 			// Final validation: if we still have no city ID for address delivery, try one last session lookup
 			if ( 'address' === $delivery_type && empty( $city_id ) && WC()->session ) {
-				$city_id = absint( WC()->session->get( 'speedy_modern_city_id', 0 ) );
+				$city_id = absint( WC()->session->get( 'drushfo_city_id', 0 ) );
 			}
 
 			// For address delivery, we need a city. 
 			if ( 'address' === $delivery_type && empty( $city_id ) ) {
 				// Clear stale session data
 				if ( WC()->session ) {
-					WC()->session->set( 'speedy_modern_service_options', [] );
-					WC()->session->set( 'speedy_modern_shipping_cost', 0 );
+					WC()->session->set( 'drushfo_service_options', [] );
+					WC()->session->set( 'drushfo_shipping_cost', 0 );
 				}
 				$this->add_rate( [
 					'id'        => $this->get_rate_id(),
@@ -1102,8 +1184,8 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			// For office/automat delivery on checkout, we need the user to select an office.
 			if ( ! is_cart() && in_array( $delivery_type, [ 'office', 'automat' ], true ) && empty( $office_id ) ) {
 				if ( WC()->session ) {
-					WC()->session->set( 'speedy_modern_service_options', [] );
-					WC()->session->set( 'speedy_modern_shipping_cost', 0 );
+					WC()->session->set( 'drushfo_service_options', [] );
+					WC()->session->set( 'drushfo_shipping_cost', 0 );
 				}
 				$this->add_rate( [
 					'id'        => $this->get_rate_id(),
@@ -1207,16 +1289,16 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 				// Store cost in session
 				if ( WC()->session ) {
-					WC()->session->set( 'speedy_modern_shipping_cost', $final_cost );
-					WC()->session->set( 'speedy_modern_shipping_data', $payload );
+					WC()->session->set( 'drushfo_shipping_cost', $final_cost );
+					WC()->session->set( 'drushfo_shipping_data', $payload );
 					// Clear service options — no service selector for override pricing
-					WC()->session->set( 'speedy_modern_service_options', [] );
+					WC()->session->set( 'drushfo_service_options', [] );
 				}
 
 				// Append "free shipping" hint to the label
 				$label = $this->title;
 				if ( $is_free_shipping ) {
-					$label .= ' (' . __( 'Free shipping', 'modern-shipping-for-speedy' ) . ')';
+					$label .= ' (' . __( 'Free shipping', 'drusoft-shipping-for-speedy' ) . ')';
 				}
 
 				$this->add_rate( [
@@ -1228,12 +1310,12 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				// ── Quick-path: if the session already has priced service options
 				// (e.g. the user just switched the service dropdown) and the
 				// underlying checkout inputs haven't changed, reuse them.
-				$cached_service_options = WC()->session ? WC()->session->get( 'speedy_modern_service_options', [] ) : [];
-				$selected_service       = WC()->session ? (int) WC()->session->get( 'speedy_modern_selected_service', 0 ) : 0;
+				$cached_service_options = WC()->session ? WC()->session->get( 'drushfo_service_options', [] ) : [];
+				$selected_service       = WC()->session ? (int) WC()->session->get( 'drushfo_selected_service', 0 ) : 0;
 
 				if ( ! empty( $cached_service_options ) && $selected_service && isset( $cached_service_options[ $selected_service ] ) ) {
 					// Verify the cache is still relevant: same delivery type + city/office
-					$cached_payload = WC()->session->get( 'speedy_modern_shipping_data' );
+					$cached_payload = WC()->session->get( 'drushfo_shipping_data' );
 					$cache_hit      = false;
 
 					if ( $cached_payload ) {
@@ -1281,7 +1363,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				$response = $this->call_speedy_calculate_api( $payload );
 
 				if ( is_wp_error( $response ) ) {
-					$fallback = WC()->session ? WC()->session->get( 'speedy_modern_shipping_cost', 0 ) : 0;
+					$fallback = WC()->session ? WC()->session->get( 'drushfo_shipping_cost', 0 ) : 0;
 					$this->add_rate( [
 						'id'    => $this->get_rate_id(),
 						'label' => $this->title,
@@ -1292,7 +1374,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 				// Check for top-level API error
 				if ( ! empty( $response['error'] ) ) {
-					$fallback = WC()->session ? WC()->session->get( 'speedy_modern_shipping_cost', 0 ) : 0;
+					$fallback = WC()->session ? WC()->session->get( 'drushfo_shipping_cost', 0 ) : 0;
 					$this->add_rate( [
 						'id'    => $this->get_rate_id(),
 						'label' => $this->title,
@@ -1312,7 +1394,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				}
 
 				if ( empty( $successful_calcs ) ) {
-					$fallback = WC()->session ? WC()->session->get( 'speedy_modern_shipping_cost', 0 ) : 0;
+					$fallback = WC()->session ? WC()->session->get( 'drushfo_shipping_cost', 0 ) : 0;
 					$this->add_rate( [
 						'id'    => $this->get_rate_id(),
 						'label' => $this->title,
@@ -1331,7 +1413,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 				// ── Build service options for the frontend ──
 				// Determine which service to select by default.
 				// If the user already picked one (stored in session), keep it.
-				$selected_service = WC()->session ? (int) WC()->session->get( 'speedy_modern_selected_service', 0 ) : 0;
+				$selected_service = WC()->session ? (int) WC()->session->get( 'drushfo_selected_service', 0 ) : 0;
 
 				$service_options = [];
 				$first_service_id = null;
@@ -1347,7 +1429,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					}
 
 					$service_name = $service_names[ $service_id ]
-						?? ( __( 'Service', 'modern-shipping-for-speedy' ) . ' ' . $service_id );
+						?? ( __( 'Service', 'drusoft-shipping-for-speedy' ) . ' ' . $service_id );
 
 					$service_options[ $service_id ] = [
 						'id'   => $service_id,
@@ -1366,7 +1448,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					$svc_payload['_selected_service_id']  = $service_id;
 
 					if ( WC()->session ) {
-						WC()->session->set( 'speedy_modern_shipping_data_' . $service_id, $svc_payload );
+						WC()->session->set( 'drushfo_shipping_data_' . $service_id, $svc_payload );
 					}
 				}
 
@@ -1381,14 +1463,14 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 				// Store in session so JS can render a service selector
 				if ( WC()->session ) {
-					WC()->session->set( 'speedy_modern_service_options', $service_options );
-					WC()->session->set( 'speedy_modern_shipping_cost', $active_cost );
-					WC()->session->set( 'speedy_modern_selected_service', $active_service_id );
+					WC()->session->set( 'drushfo_service_options', $service_options );
+					WC()->session->set( 'drushfo_shipping_cost', $active_cost );
+					WC()->session->set( 'drushfo_selected_service', $active_service_id );
 
 					$active_payload = $session_payload;
 					$active_payload['service']['serviceIds'] = [ $active_service_id ];
 					$active_payload['_selected_service_id']  = $active_service_id;
-					WC()->session->set( 'speedy_modern_shipping_data', $active_payload );
+					WC()->session->set( 'drushfo_shipping_data', $active_payload );
 				}
 
 				// Always add a SINGLE rate – service selection is handled in our custom UI
@@ -1444,7 +1526,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			// Delivery Type
 			$delivery_type = sanitize_text_field( $merged['speedy_delivery_type'] ?? '' );
 			if ( empty( $delivery_type ) && WC()->session ) {
-				$delivery_type = WC()->session->get( 'speedy_modern_delivery_type', 'address' );
+				$delivery_type = WC()->session->get( 'drushfo_delivery_type', 'address' );
 			}
 			if ( empty( $delivery_type ) ) {
 				$delivery_type = 'address';
@@ -1455,7 +1537,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			// On the cart page, fall back to session (set by get_first_available_office).
 			// On checkout, do NOT fall back — the user must select an office explicitly.
 			if ( $office_id === 0 && WC()->session && ! $has_post_data ) {
-				$office_id = absint( WC()->session->get( 'speedy_modern_office_id', 0 ) );
+				$office_id = absint( WC()->session->get( 'drushfo_office_id', 0 ) );
 			}
 
 			// City ID: the checkout.js replaces the city input with a <select> whose
@@ -1474,7 +1556,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			}
 			// 3. Try customer session as last resort
 			elseif ( WC()->session ) {
-				$city_id = absint( WC()->session->get( 'speedy_modern_city_id', 0 ) );
+				$city_id = absint( WC()->session->get( 'drushfo_city_id', 0 ) );
 				if ( ! $city_id && WC()->customer ) {
 					$session_city = WC()->customer->get_shipping_city() ?: WC()->customer->get_billing_city();
 					if ( is_numeric( $session_city ) ) {
@@ -1593,7 +1675,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 			// Try instance option first, then legacy global option
 			$file_path = $this->get_option( 'fileceni' );
 			if ( empty( $file_path ) || ! file_exists( $file_path ) ) {
-				$file_path = get_option( 'speedy_fileceni_path' );
+				$file_path = get_option( 'drushfo_fileceni_path' );
 			}
 
 			if ( empty( $file_path ) || ! file_exists( $file_path ) ) {
@@ -1989,7 +2071,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 
 					$fiscal_items[] = [
 						/* translators: %s: VAT group identifier (e.g. А, Б, Г) */
-						'description'   => sprintf( __( 'Products from order (group %s)', 'modern-shipping-for-speedy' ), $group ),
+						'description'   => sprintf( __( 'Products from order (group %s)', 'drusoft-shipping-for-speedy' ), $group ),
 						'vatGroup'      => $group,
 						'amount'        => round( $sum['ex'], 2 ),
 						'amountWithVat' => round( $sum['in'], 2 ),
@@ -2010,7 +2092,7 @@ if ( ! class_exists( 'WC_Speedy_Modern_Method' ) ) {
 					$shipping_amount_ex_vat = $shipping_amount_with_vat / ( 1 + $shipping_vat_rate );
 
 					$fiscal_items[] = [
-						'description'   => __( 'Delivery', 'modern-shipping-for-speedy' ),
+						'description'   => __( 'Delivery', 'drusoft-shipping-for-speedy' ),
 						'vatGroup'      => 'Б',
 						'amount'        => round( $shipping_amount_ex_vat, 2 ),
 						'amountWithVat' => round( $shipping_amount_with_vat, 2 ),

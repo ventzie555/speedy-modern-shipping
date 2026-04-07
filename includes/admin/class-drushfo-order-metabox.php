@@ -10,7 +10,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Displays waybill status and provides Generate, Print, Cancel,
  * and Request Courier buttons directly on the order screen.
  */
-class Speedy_Modern_Order_Metabox {
+class Drushfo_Order_Metabox {
 
 	public static function init(): void {
 		add_action( 'add_meta_boxes', [ __CLASS__, 'add_meta_box' ] );
@@ -35,7 +35,7 @@ class Speedy_Modern_Order_Metabox {
 
 		$has_speedy = false;
 		foreach ( $order->get_shipping_methods() as $method ) {
-			if ( 'speedy_modern' === $method->get_method_id() ) {
+			if ( 'drushfo_speedy' === $method->get_method_id() ) {
 				$has_speedy = true;
 				break;
 			}
@@ -46,8 +46,8 @@ class Speedy_Modern_Order_Metabox {
 		}
 
 		add_meta_box(
-			'speedy-modern-shipment',
-			__( 'Speedy Shipment', 'modern-shipping-for-speedy' ),
+			'drushfo-shipment',
+			__( 'Speedy Shipment', 'drusoft-shipping-for-speedy' ),
 			[ __CLASS__, 'render' ],
 			$screen,
 			'side',
@@ -109,13 +109,13 @@ class Speedy_Modern_Order_Metabox {
 	public static function render(): void {
 		$order = self::get_current_order();
 		if ( ! $order ) {
-			echo '<p>' . esc_html__( 'Order not found.', 'modern-shipping-for-speedy' ) . '</p>';
+			echo '<p>' . esc_html__( 'Order not found.', 'drusoft-shipping-for-speedy' ) . '</p>';
 			return;
 		}
 
 		$order_id   = $order->get_id();
-		$waybill_id = $order->get_meta( '_speedy_waybill_id' );
-		$courier_requested = ( 'yes' === $order->get_meta( '_speedy_courier_requested' ) );
+		$waybill_id = $order->get_meta( '_drushfo_waybill_id' );
+		$courier_requested = ( 'yes' === $order->get_meta( '_drushfo_courier_requested' ) );
 
 		echo '<div id="speedy-metabox-content">';
 
@@ -123,38 +123,38 @@ class Speedy_Modern_Order_Metabox {
 			// Waybill exists — show info and actions
 			$track_url = 'https://www.speedy.bg/track?id=' . urlencode( $waybill_id );
 			$print_url = wp_nonce_url(
-				admin_url( 'admin-post.php?action=speedy_print_waybill&order_id=' . $order_id ),
-				'speedy_print_waybill'
+				admin_url( 'admin-post.php?action=drushfo_print_waybill&order_id=' . $order_id ),
+				'drushfo_print_waybill'
 			);
 
-			echo '<p><strong>' . esc_html__( 'Waybill:', 'modern-shipping-for-speedy' ) . '</strong> ';
+			echo '<p><strong>' . esc_html__( 'Waybill:', 'drusoft-shipping-for-speedy' ) . '</strong> ';
 			echo '<a href="' . esc_url( $track_url ) . '" target="_blank">' . esc_html( $waybill_id ) . '</a></p>';
 
 			echo '<div class="speedy-metabox-actions" style="display: flex; flex-direction: column; gap: 6px;">';
 
 			// Print
 			echo '<a href="' . esc_url( $print_url ) . '" target="_blank" class="button" style="text-align:center;">'
-			     . esc_html__( 'Print Waybill', 'modern-shipping-for-speedy' ) . '</a>';
+			     . esc_html__( 'Print Waybill', 'drusoft-shipping-for-speedy' ) . '</a>';
 
 			// Request Courier
 			if ( $courier_requested ) {
 				echo '<span class="button disabled" style="text-align:center; color: green;">'
-				     . esc_html__( 'Courier Requested', 'modern-shipping-for-speedy' ) . '</span>';
+				     . esc_html__( 'Courier Requested', 'drusoft-shipping-for-speedy' ) . '</span>';
 			} else {
 				echo '<button type="button" class="button speedy-order-request-courier" data-order-id="' . esc_attr( $order_id ) . '">'
-				     . esc_html__( 'Request Courier', 'modern-shipping-for-speedy' ) . '</button>';
+				     . esc_html__( 'Request Courier', 'drusoft-shipping-for-speedy' ) . '</button>';
 			}
 
 			// Cancel
 			echo '<button type="button" class="button speedy-order-cancel" data-order-id="' . esc_attr( $order_id ) . '" style="color: #a00;">'
-			     . esc_html__( 'Cancel Shipment', 'modern-shipping-for-speedy' ) . '</button>';
+			     . esc_html__( 'Cancel Shipment', 'drusoft-shipping-for-speedy' ) . '</button>';
 
 			echo '</div>';
 		} else {
 			// No waybill — show generate button
-			echo '<p>' . esc_html__( 'No waybill generated yet.', 'modern-shipping-for-speedy' ) . '</p>';
+			echo '<p>' . esc_html__( 'No waybill generated yet.', 'drusoft-shipping-for-speedy' ) . '</p>';
 			echo '<button type="button" class="button button-primary speedy-order-generate" data-order-id="' . esc_attr( $order_id ) . '">'
-			     . esc_html__( 'Generate Waybill', 'modern-shipping-for-speedy' ) . '</button>';
+			     . esc_html__( 'Generate Waybill', 'drusoft-shipping-for-speedy' ) . '</button>';
 		}
 
 		echo '</div>';
@@ -171,26 +171,26 @@ class Speedy_Modern_Order_Metabox {
 		}
 
 		wp_enqueue_script(
-			'speedy-modern-order-metabox',
-			SPEEDY_MODERN_URL . 'assets/js/order-metabox.js',
+			'drushfo-order-metabox',
+			DRUSHFO_URL . 'assets/js/order-metabox.js',
 			[ 'jquery' ],
-			'1.0.0',
+			DRUSHFO_VER,
 			true
 		);
 
-		wp_localize_script( 'speedy-modern-order-metabox', 'speedy_metabox_params', [
+		wp_localize_script( 'drushfo-order-metabox', 'drushfo_metabox_params', [
 			'ajax_url' => admin_url( 'admin-ajax.php' ),
-			'nonce'    => wp_create_nonce( 'speedy_modern_actions' ),
+			'nonce'    => wp_create_nonce( 'drushfo_actions' ),
 			'i18n'     => [
-				'confirm_cancel'    => __( 'Are you sure you want to cancel this shipment?', 'modern-shipping-for-speedy' ),
-				'generating'        => __( 'Generating...', 'modern-shipping-for-speedy' ),
-				'requesting'        => __( 'Requesting...', 'modern-shipping-for-speedy' ),
-				'courier_requested' => __( 'Courier Requested', 'modern-shipping-for-speedy' ),
-				'cancelling'        => __( 'Cancelling...', 'modern-shipping-for-speedy' ),
+				'confirm_cancel'    => __( 'Are you sure you want to cancel this shipment?', 'drusoft-shipping-for-speedy' ),
+				'generating'        => __( 'Generating...', 'drusoft-shipping-for-speedy' ),
+				'requesting'        => __( 'Requesting...', 'drusoft-shipping-for-speedy' ),
+				'courier_requested' => __( 'Courier Requested', 'drusoft-shipping-for-speedy' ),
+				'cancelling'        => __( 'Cancelling...', 'drusoft-shipping-for-speedy' ),
 			],
 		] );
 	}
 }
 
-Speedy_Modern_Order_Metabox::init();
+Drushfo_Order_Metabox::init();
 

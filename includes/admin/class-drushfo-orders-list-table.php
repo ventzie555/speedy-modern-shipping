@@ -9,12 +9,12 @@ if ( ! class_exists( 'WP_List_Table' ) ) {
 }
 
 /**
- * Class Speedy_Orders_List_Table
+ * Class Drushfo_Orders_List_Table
  *
  * Extends WP_List_Table to display a list of WooCommerce orders that have an associated Speedy waybill.
  * Provides functionality for listing, pagination, and actions like printing waybills, canceling shipments, and requesting couriers.
  */
-class Speedy_Orders_List_Table extends WP_List_Table {
+class Drushfo_Orders_List_Table extends WP_List_Table {
 
 	/**
 	 * Constructor.
@@ -23,8 +23,8 @@ class Speedy_Orders_List_Table extends WP_List_Table {
 	 */
 	public function __construct() {
 		parent::__construct( [
-			'singular' => __( 'Speedy Order', 'modern-shipping-for-speedy' ),
-			'plural'   => __( 'Speedy Orders', 'modern-shipping-for-speedy' ),
+			'singular' => __( 'Speedy Order', 'drusoft-shipping-for-speedy' ),
+			'plural'   => __( 'Speedy Orders', 'drusoft-shipping-for-speedy' ),
 			'ajax'     => false,
 		] );
 	}
@@ -37,11 +37,11 @@ class Speedy_Orders_List_Table extends WP_List_Table {
 	public function get_columns(): array {
 		return [
 			'cb'       => '<input type="checkbox" />',
-			'order'    => __( 'Order', 'modern-shipping-for-speedy' ),
-			'waybill'  => __( 'Waybill', 'modern-shipping-for-speedy' ),
-			'customer' => __( 'Customer', 'modern-shipping-for-speedy' ),
-			'status'   => __( 'Status', 'modern-shipping-for-speedy' ),
-			'date'     => __( 'Date', 'modern-shipping-for-speedy' ),
+			'order'    => __( 'Order', 'drusoft-shipping-for-speedy' ),
+			'waybill'  => __( 'Waybill', 'drusoft-shipping-for-speedy' ),
+			'customer' => __( 'Customer', 'drusoft-shipping-for-speedy' ),
+			'status'   => __( 'Status', 'drusoft-shipping-for-speedy' ),
+			'date'     => __( 'Date', 'drusoft-shipping-for-speedy' ),
 		];
 	}
 
@@ -64,7 +64,7 @@ class Speedy_Orders_List_Table extends WP_List_Table {
 			'paged'        => $paged,
 			'orderby'      => 'date',
 			'order'        => 'DESC',
-			'meta_key'     => '_speedy_order_data', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Required to filter Speedy orders.
+			'meta_key'     => '_drushfo_order_data', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key -- Required to filter Speedy orders.
 			'meta_compare' => 'EXISTS',
 			'paginate'     => true, // Required to get total count
 		];
@@ -124,27 +124,27 @@ class Speedy_Orders_List_Table extends WP_List_Table {
 	 * @return string The column content.
 	 */
 	protected function column_waybill( $item ): string {
-		$waybill_id = $item->get_meta( '_speedy_waybill_id' );
+		$waybill_id = $item->get_meta( '_drushfo_waybill_id' );
 
 		if ( ! $waybill_id ) {
-			return '<button class="button speedy-generate-waybill" data-order-id="' . esc_attr( $item->get_id() ) . '">' . esc_html__( 'Generate', 'modern-shipping-for-speedy' ) . '</button>';
+			return '<button class="button speedy-generate-waybill" data-order-id="' . esc_attr( $item->get_id() ) . '">' . esc_html__( 'Generate', 'drusoft-shipping-for-speedy' ) . '</button>';
 		}
 
 		$print_url = wp_nonce_url(
-			admin_url( 'admin-post.php?action=speedy_print_waybill&order_id=' . $item->get_id() ),
-			'speedy_print_waybill'
+			admin_url( 'admin-post.php?action=drushfo_print_waybill&order_id=' . $item->get_id() ),
+			'drushfo_print_waybill'
 		);
 
 		$actions = [
-			'print'   => sprintf( '<a href="%s" target="_blank">%s</a>', esc_url( $print_url ), esc_html__( 'Print', 'modern-shipping-for-speedy' ) ),
-			'cancel'  => sprintf( '<a href="#" class="speedy-cancel-shipment" data-order-id="%d">%s</a>', esc_attr( $item->get_id() ), esc_html__( 'Cancel', 'modern-shipping-for-speedy' ) ),
+			'print'   => sprintf( '<a href="%s" target="_blank">%s</a>', esc_url( $print_url ), esc_html__( 'Print', 'drusoft-shipping-for-speedy' ) ),
+			'cancel'  => sprintf( '<a href="#" class="speedy-cancel-shipment" data-order-id="%d">%s</a>', esc_attr( $item->get_id() ), esc_html__( 'Cancel', 'drusoft-shipping-for-speedy' ) ),
 		];
 
-		$courier_requested = $item->get_meta( '_speedy_courier_requested' );
+		$courier_requested = $item->get_meta( '_drushfo_courier_requested' );
 		if ( 'yes' === $courier_requested ) {
-			$actions['courier'] = '<span style="color: green;">' . esc_html__( 'Requested', 'modern-shipping-for-speedy' ) . '</span>';
+			$actions['courier'] = '<span style="color: green;">' . esc_html__( 'Requested', 'drusoft-shipping-for-speedy' ) . '</span>';
 		} else {
-			$actions['courier'] = sprintf( '<a href="#" class="speedy-request-courier" data-order-id="%d">%s</a>', esc_attr( $item->get_id() ), esc_html__( 'Request Courier', 'modern-shipping-for-speedy' ) );
+			$actions['courier'] = sprintf( '<a href="#" class="speedy-request-courier" data-order-id="%d">%s</a>', esc_attr( $item->get_id() ), esc_html__( 'Request Courier', 'drusoft-shipping-for-speedy' ) );
 		}
 
 		$track_url    = 'https://www.speedy.bg/track?id=' . urlencode( $waybill_id );

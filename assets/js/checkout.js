@@ -1,8 +1,8 @@
-/* global speedy_params */
+/* global drushfo_params */
 // noinspection CssInvalidHtmlTagReference
 
 /**
- * @global speedy_params
+ * @global drushfo_params
  * @type {object}
  * @property {string} ajax_url
  * @property {string} method_id
@@ -41,7 +41,7 @@
     'use strict';
 
     $(document).ready(function() {
-        const speedyMethodId = params.method_id; // 'speedy_modern'
+        const speedyMethodId = params.method_id; // 'drushfo_speedy'
         let isSpeedyActive = false;
         
         // State persistence across AJAX updates.
@@ -266,7 +266,7 @@
                     url: params.ajax_url,
                     type: 'POST',
                     data: {
-                        action: 'speedy_get_region_by_city',
+                        action: 'drushfo_get_region_by_city',
                         nonce: params.nonce,
                         city_id: targetCityId
                     },
@@ -437,7 +437,7 @@
             $.ajax({
                 url: params.ajax_url,
                 type: 'POST',
-                data: { action: 'speedy_get_cities', nonce: params.nonce, region: stateCode },
+                data: { action: 'drushfo_get_cities', nonce: params.nonce, region: stateCode },
                 success: function(response) {
                     if (response.success) {
                         cachedState = stateCode;
@@ -467,7 +467,7 @@
             $.ajax({
                 url: params.ajax_url,
                 type: 'POST',
-                data: { action: 'speedy_check_availability', nonce: params.nonce, city_id: cityId },
+                data: { action: 'drushfo_check_availability', nonce: params.nonce, city_id: cityId },
                 success: function(response) {
                     if (response.success) {
                         cachedCityId = cityId;
@@ -907,7 +907,7 @@
             $.ajax({
                 url: params.ajax_url,
                 method: 'POST',
-                data: { action: 'speedy_modern_get_services', nonce: params.nonce },
+                data: { action: 'drushfo_get_services', nonce: params.nonce },
                 success: function(response) {
                     $('#speedy-service-field').remove();
 
@@ -951,7 +951,7 @@
                             url: params.ajax_url,
                             method: 'POST',
                             data: {
-                                action: 'speedy_modern_select_service',
+                                action: 'drushfo_select_service',
                                 nonce: params.nonce,
                                 service_id: serviceId
                             },
@@ -1129,7 +1129,7 @@
                         url: params.ajax_url,
                         method: 'POST',
                         data: {
-                            action: 'speedy_modern_search_streets',
+                            action: 'drushfo_search_streets',
                             nonce: params.nonce,
                             siteId: siteId,
                             name: query
@@ -1209,7 +1209,7 @@
         var modelMatcher = SpeedyModern.modelMatcher;
 
     });
-})(jQuery, window.speedy_params);
+})(jQuery, window.drushfo_params);
 
 
 

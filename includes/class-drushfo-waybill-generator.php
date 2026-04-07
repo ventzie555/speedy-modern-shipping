@@ -4,9 +4,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly
 }
 
-if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
+if ( ! class_exists( 'Drushfo_Waybill_Generator' ) ) {
 
-	class Speedy_Modern_Waybill_Generator {
+	class Drushfo_Waybill_Generator {
 
 		/**
 		 * The single instance of the class.
@@ -14,9 +14,9 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 		protected static $_instance = null;
 
 		/**
-		 * Main Speedy_Modern_Waybill_Generator Instance.
+		 * Main Drushfo_Waybill_Generator Instance.
 		 */
-		public static function instance(): ?Speedy_Modern_Waybill_Generator {
+		public static function instance(): ?Drushfo_Waybill_Generator {
 			if ( is_null( self::$_instance ) ) {
 				self::$_instance = new self();
 			}
@@ -44,12 +44,12 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 			$shipping_methods = $order->get_shipping_methods();
 			$shipping_method  = reset( $shipping_methods ); // Get the first shipping method
 
-			if ( ! $shipping_method || 'speedy_modern' !== $shipping_method->get_method_id() ) {
+			if ( ! $shipping_method || 'drushfo_speedy' !== $shipping_method->get_method_id() ) {
 				return;
 			}
 
 			$instance_id = $shipping_method->get_instance_id();
-			$settings    = get_option( 'woocommerce_speedy_modern_' . $instance_id . '_settings' );
+			$settings    = get_option( 'woocommerce_drushfo_speedy_' . $instance_id . '_settings' );
 
 			// Trigger on 'processing' or 'on-hold' if auto-generation is enabled
 			$should_generate = ( 'yes' === ( $settings['generate_waybill'] ?? 'no' ) );
@@ -70,31 +70,31 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 			$order = wc_get_order( $order_id );
 
 			if ( ! $order ) {
-				return new WP_Error( 'invalid_order', __( 'Invalid order ID.', 'modern-shipping-for-speedy' ) );
+				return new WP_Error( 'invalid_order', __( 'Invalid order ID.', 'drusoft-shipping-for-speedy' ) );
 			}
 
 			// Prevent re-generation if a waybill already exists
-			if ( $order->get_meta( '_speedy_waybill_id' ) ) {
-				return $order->get_meta( '_speedy_waybill_id' );
+			if ( $order->get_meta( '_drushfo_waybill_id' ) ) {
+				return $order->get_meta( '_drushfo_waybill_id' );
 			}
 
 			// Retrieve the payload saved during checkout
-			$payload = $order->get_meta( '_speedy_order_data' );
+			$payload = $order->get_meta( '_drushfo_order_data' );
 			if ( empty( $payload ) ) {
-				return new WP_Error( 'no_payload', __( 'No Speedy shipping data found for this order.', 'modern-shipping-for-speedy' ) );
+				return new WP_Error( 'no_payload', __( 'No Speedy shipping data found for this order.', 'drusoft-shipping-for-speedy' ) );
 			}
 
 			// Get credentials from the specific shipping instance
 			$shipping_methods = $order->get_shipping_methods();
 			$shipping_method  = reset( $shipping_methods );
 			$instance_id      = $shipping_method->get_instance_id();
-			$settings         = get_option( 'woocommerce_speedy_modern_' . $instance_id . '_settings' );
+			$settings         = get_option( 'woocommerce_drushfo_speedy_' . $instance_id . '_settings' );
 
 			$username = $settings['speedy_username'] ?? '';
 			$password = $settings['speedy_password'] ?? '';
 
 			if ( ! $username || ! $password ) {
-				return new WP_Error( 'no_credentials', __( 'Speedy credentials are not configured for this shipping method.', 'modern-shipping-for-speedy' ) );
+				return new WP_Error( 'no_credentials', __( 'Speedy credentials are not configured for this shipping method.', 'drusoft-shipping-for-speedy' ) );
 			}
 
 			// --- Finalize the Payload ---
@@ -117,6 +117,14 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 				$payload['content']['package'] = $settings['opakovka'] ?? 'BOX';
 			}
 
+			// Automats cannot accept pallets — fall back to BOX.
+			if ( 'PALLET' === $payload['content']['package'] && isset( $payload['recipient']['pickupOfficeId'] ) ) {
+				$delivery_type = $order->get_meta( '_drushfo_delivery_type' );
+				if ( 'automat' === $delivery_type ) {
+					$payload['content']['package'] = 'BOX';
+				}
+			}
+
 			// Add contents description (required by /v1/shipment)
 			if ( empty( $payload['content']['contents'] ) ) {
 				$items = [];
@@ -125,7 +133,7 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 				}
 				$description = implode( ', ', $items );
 				if ( empty( $description ) ) {
-					$description = __( 'Order #', 'modern-shipping-for-speedy' ) . $order->get_order_number();
+					$description = __( 'Order #', 'drusoft-shipping-for-speedy' ) . $order->get_order_number();
 				}
 				// Speedy limits this field — truncate to 100 chars
 				$payload['content']['contents'] = mb_substr( $description, 0, 100 );
@@ -137,7 +145,7 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 			$payload['recipient']['email']            = $order->get_billing_email();
 
 			// Add order reference
-			$payload['ref1'] = __( 'Order #', 'modern-shipping-for-speedy' ) . $order->get_order_number();
+			$payload['ref1'] = __( 'Order #', 'drusoft-shipping-for-speedy' ) . $order->get_order_number();
 
 			// If delivery is to address, use addressNote
 			if ( isset( $payload['recipient']['addressLocation'] ) ) {
@@ -160,7 +168,7 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 			] );
 
 			if ( is_wp_error( $response ) ) {
-				$order->add_order_note( __( 'Speedy Waybill Error: ', 'modern-shipping-for-speedy' ) . $response->get_error_message() );
+				$order->add_order_note( __( 'Speedy Waybill Error: ', 'drusoft-shipping-for-speedy' ) . $response->get_error_message() );
 				return $response;
 			}
 
@@ -168,8 +176,8 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 
 			// --- Handle API Response ---
 			if ( isset( $body['error'] ) ) {
-				$error_message = $body['error']['message'] ?? __( 'Unknown API error', 'modern-shipping-for-speedy' );
-				$order->add_order_note( __( 'Speedy Waybill Error: ', 'modern-shipping-for-speedy' ) . $error_message );
+				$error_message = $body['error']['message'] ?? __( 'Unknown API error', 'drusoft-shipping-for-speedy' );
+				$order->add_order_note( __( 'Speedy Waybill Error: ', 'drusoft-shipping-for-speedy' ) . $error_message );
 				return new WP_Error( 'api_error', $error_message );
 			}
 
@@ -177,18 +185,18 @@ if ( ! class_exists( 'Speedy_Modern_Waybill_Generator' ) ) {
 				$waybill_id = $body['id'];
 
 				// Save the waybill ID and the full response to the order
-				$order->update_meta_data( '_speedy_waybill_id', $waybill_id );
-				$order->update_meta_data( '_speedy_waybill_response', $body );
-				$order->add_order_note( __( 'Speedy Waybill Created: ', 'modern-shipping-for-speedy' ) . $waybill_id );
+				$order->update_meta_data( '_drushfo_waybill_id', $waybill_id );
+				$order->update_meta_data( '_drushfo_waybill_response', $body );
+				$order->add_order_note( __( 'Speedy Waybill Created: ', 'drusoft-shipping-for-speedy' ) . $waybill_id );
 				$order->save();
 
 				return $waybill_id;
 			}
 
-			return new WP_Error( 'unexpected_response', __( 'Unexpected response from Speedy API.', 'modern-shipping-for-speedy' ) );
+			return new WP_Error( 'unexpected_response', __( 'Unexpected response from Speedy API.', 'drusoft-shipping-for-speedy' ) );
 		}
 	}
 }
 
 // Initialize the generator
-Speedy_Modern_Waybill_Generator::instance();
+Drushfo_Waybill_Generator::instance();

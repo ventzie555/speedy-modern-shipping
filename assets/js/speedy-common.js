@@ -1,5 +1,5 @@
 /**
- * Speedy Modern Shipping — Shared utilities
+ * Drusoft Shipping for Speedy — Shared utilities
  *
  * Exposes window.SpeedyModern with transliteration and Select2 matcher
  * used by both cart.js and checkout.js.

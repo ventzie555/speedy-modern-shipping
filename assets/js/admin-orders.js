@@ -1,5 +1,5 @@
 jQuery(document).ready(function($) {
-    // The nonce and ajaxurl are passed via wp_localize_script as 'speedy_admin_params'
+    // The nonce and ajaxurl are passed via wp_localize_script as 'drushfo_admin_params'
 
     function showNotice(message, type) {
         // Remove any existing Speedy notices
@@ -17,19 +17,19 @@ jQuery(document).ready(function($) {
 
     $(document).on('click', '.speedy-cancel-shipment', function(e) {
         e.preventDefault();
-        if (!confirm(speedy_admin_params.i18n.confirm_cancel)) {
+        if (!confirm(drushfo_admin_params.i18n.confirm_cancel)) {
             return;
         }
         const orderId = $(this).data('order-id');
         const row = $(this).closest('tr');
 
         $.ajax({
-            url: speedy_admin_params.ajax_url,
+            url: drushfo_admin_params.ajax_url,
             type: 'POST',
             data: {
-                action: 'speedy_cancel_shipment',
+                action: 'drushfo_cancel_shipment',
                 order_id: orderId,
-                nonce: speedy_admin_params.nonce
+                nonce: drushfo_admin_params.nonce
             },
             beforeSend: function() {
                 row.css('opacity', '0.5');
@@ -40,7 +40,7 @@ jQuery(document).ready(function($) {
                     var waybillCell = row.find('.column-waybill');
                     waybillCell.html(
                         '<button class="button speedy-generate-waybill" data-order-id="' + orderId + '">' +
-                        speedy_admin_params.i18n.generate +
+                        drushfo_admin_params.i18n.generate +
                         '</button>'
                     );
                     row.css('opacity', '1');
@@ -59,23 +59,23 @@ jQuery(document).ready(function($) {
         const button = $(this);
 
         $.ajax({
-            url: speedy_admin_params.ajax_url,
+            url: drushfo_admin_params.ajax_url,
             type: 'POST',
             data: {
-                action: 'speedy_request_courier',
+                action: 'drushfo_request_courier',
                 order_id: orderId,
-                nonce: speedy_admin_params.nonce
+                nonce: drushfo_admin_params.nonce
             },
             beforeSend: function() {
-                button.text(speedy_admin_params.i18n.requesting).prop('disabled', true);
+                button.text(drushfo_admin_params.i18n.requesting).prop('disabled', true);
             },
             success: function(response) {
                 if (response.success) {
-                    button.replaceWith('<span style="color: green;">' + speedy_admin_params.i18n.requested + '</span>');
+                    button.replaceWith('<span style="color: green;">' + drushfo_admin_params.i18n.requested + '</span>');
                     showNotice(response.data, 'success');
                 } else {
                     showNotice(response.data, 'error');
-                    button.text(speedy_admin_params.i18n.request_courier).prop('disabled', false);
+                    button.text(drushfo_admin_params.i18n.request_courier).prop('disabled', false);
                 }
             }
         });
@@ -87,15 +87,15 @@ jQuery(document).ready(function($) {
         const button = $(this);
 
         $.ajax({
-            url: speedy_admin_params.ajax_url,
+            url: drushfo_admin_params.ajax_url,
             type: 'POST',
             data: {
-                action: 'speedy_generate_waybill',
+                action: 'drushfo_generate_waybill',
                 order_id: orderId,
-                nonce: speedy_admin_params.nonce
+                nonce: drushfo_admin_params.nonce
             },
             beforeSend: function() {
-                button.text(speedy_admin_params.i18n.generating).prop('disabled', true);
+                button.text(drushfo_admin_params.i18n.generating).prop('disabled', true);
             },
             success: function(response) {
                 if (response.success) {
@@ -103,7 +103,7 @@ jQuery(document).ready(function($) {
                     location.reload();
                 } else {
                     showNotice(response.data, 'error');
-                    button.text(speedy_admin_params.i18n.generate).prop('disabled', false);
+                    button.text(drushfo_admin_params.i18n.generate).prop('disabled', false);
                 }
             }
         });

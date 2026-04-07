@@ -1,6 +1,6 @@
 jQuery(document).ready(function($) {
 
-    var params = speedy_metabox_params;
+    var params = drushfo_metabox_params;
 
     function showMetaboxNotice(message, type) {
         var $notice = $('#speedy-metabox-notice');
@@ -21,7 +21,7 @@ jQuery(document).ready(function($) {
             url: params.ajax_url,
             type: 'POST',
             data: {
-                action: 'speedy_generate_waybill',
+                action: 'drushfo_generate_waybill',
                 order_id: orderId,
                 nonce: params.nonce
             },
@@ -49,7 +49,7 @@ jQuery(document).ready(function($) {
             url: params.ajax_url,
             type: 'POST',
             data: {
-                action: 'speedy_request_courier',
+                action: 'drushfo_request_courier',
                 order_id: orderId,
                 nonce: params.nonce
             },
@@ -85,7 +85,7 @@ jQuery(document).ready(function($) {
             url: params.ajax_url,
             type: 'POST',
             data: {
-                action: 'speedy_cancel_shipment',
+                action: 'drushfo_cancel_shipment',
                 order_id: orderId,
                 nonce: params.nonce
             },

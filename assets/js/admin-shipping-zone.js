@@ -1,5 +1,5 @@
 /**
- * Speedy Modern – Admin Shipping Zone Script
+ * Drusoft Shipping for Speedy – Admin Shipping Zone Script
  *
  * Automatically reopens the shipping method settings modal after saving
  * credentials for the first time (so unlocked fields appear), or after
@@ -8,12 +8,12 @@
 (function( $ ) {
 	'use strict';
 
-	if ( typeof speedy_modern_admin === 'undefined' ) {
+	if ( typeof drushfo_admin === 'undefined' ) {
 		return;
 	}
 
 	// Track whether credentials existed before this page load
-	var hadCredentials = speedy_modern_admin.has_credentials === '1';
+	var hadCredentials = drushfo_admin.has_credentials === '1';
 
 	// Store error messages from the last failed save so we can inject them into the modal
 	var pendingErrors = [];
@@ -43,10 +43,10 @@
 			return;
 		}
 
-		// Check if any of the saved methods is our speedy_modern method
+		// Check if any of the saved methods is our drushfo_speedy method
 		var isSpeedyMethod = false;
 		$.each( response.data.methods, function( id, method ) {
-			if ( method.id === 'speedy_modern' ) {
+			if ( method.id === 'drushfo_speedy' ) {
 				isSpeedyMethod = true;
 				return false; // break
 			}
@@ -116,7 +116,7 @@
 		$.each( pendingErrors, function( i, msg ) {
 			errorHtml += '<p style="color:#d63638;font-weight:bold;margin:4px 0;">' + msg + '</p>';
 		});
-		errorHtml += '<p style="margin:4px 0;">' + ( speedy_modern_admin.i18n_correct_credentials || 'Please correct your credentials and save again.' ) + '</p>';
+		errorHtml += '<p style="margin:4px 0;">' + ( drushfo_admin.i18n_correct_credentials || 'Please correct your credentials and save again.' ) + '</p>';
 		errorHtml += '</div>';
 
 		// The modal content structure after WC's replaceHTMLTables:

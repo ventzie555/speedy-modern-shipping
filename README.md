@@ -1,4 +1,4 @@
-# Modern Shipping for Speedy — WooCommerce Plugin
+# Drusoft Shipping for Speedy — WooCommerce Plugin
 
 [![WordPress](https://img.shields.io/badge/WordPress-6.0+-21759b.svg)](https://wordpress.org/)
 [![WooCommerce](https://img.shields.io/badge/WooCommerce-8.0+-96588a.svg)](https://woocommerce.com/)
@@ -36,11 +36,11 @@ A high-performance, conflict-free **WooCommerce shipping plugin** for [Speedy](h
 
 ## 📦 Installation
 
-1. Download the [latest release](https://github.com/ventzie555/speedy-modern-shipping/releases) or clone this repo
-2. Upload the `speedy-modern-shipping` folder to `/wp-content/plugins/`
+1. Download the [latest release](https://github.com/ventzie555/drusoft-shipping-for-speedy/releases) or clone this repo
+2. Upload the `drusoft-shipping-for-speedy` folder to `/wp-content/plugins/`
 3. Activate the plugin in **Plugins → Installed Plugins**
 4. Go to **WooCommerce → Settings → Shipping → Shipping Zones**
-5. Add/edit a zone (e.g. "Bulgaria") → **Add shipping method** → select **Speedy Modern**
+5. Add/edit a zone (e.g. "Bulgaria") → **Add shipping method** → select **Drusoft Shipping for Speedy**
 6. Enter your **Speedy API credentials** and click **Save Changes**
 7. Background sync of cities and offices starts automatically
 
@@ -93,11 +93,11 @@ A high-performance, conflict-free **WooCommerce shipping plugin** for [Speedy](h
 
 ### Database
 Creates two custom tables for cached location data:
-- `{prefix}_speedy_cities` — ~5,300 Bulgarian cities/villages
-- `{prefix}_speedy_offices` — ~1,200 Speedy offices and automats
+- `{prefix}_drushfo_cities` — ~5,300 Bulgarian cities/villages
+- `{prefix}_drushfo_offices` — ~1,200 Speedy offices and automats
 
 ### Background Sync
-The `speedy_modern_sync_locations_event` action runs via WooCommerce Action Scheduler. Monitor it at **WooCommerce → Status → Scheduled Actions**.
+The `drushfo_sync_locations_event` action runs via WooCommerce Action Scheduler. Monitor it at **WooCommerce → Status → Scheduled Actions**.
 
 ### API Integration
 All communication with `https://api.speedy.bg/v1/` — endpoints used:
@@ -136,7 +136,7 @@ For support or custom feature requests, contact [DRUSOFT LTD](https://drusoft.de
 
 ---
 
-# Modern Shipping for Speedy — WooCommerce плъгин 🇧🇬
+# Drusoft Shipping for Speedy — WooCommerce плъгин 🇧🇬
 
 Високопроизводителна и безконфликтна интеграция на **Спиди** куриерски услуги за **WooCommerce** магазини в България. Осигурява изчисляване на цени в реално време, генериране на товарителници, избор на офис/автомат и пълно управление на поръчки — през официалния Speedy REST API.
 
@@ -164,11 +164,11 @@ For support or custom feature requests, contact [DRUSOFT LTD](https://drusoft.de
 
 ## 📦 Инсталация
 
-1. Изтеглете [последната версия](https://github.com/ventzie555/speedy-modern-shipping/releases) или клонирайте репото
-2. Качете папката `speedy-modern-shipping` в `/wp-content/plugins/`
+1. Изтеглете [последната версия](https://github.com/ventzie555/drusoft-shipping-for-speedy/releases) или клонирайте репото
+2. Качете папката `drusoft-shipping-for-speedy` в `/wp-content/plugins/`
 3. Активирайте плъгина от **Разширения → Инсталирани разширения**
 4. Отидете в **WooCommerce → Настройки → Доставка → Зони за доставка**
-5. Добавете/редактирайте зона (напр. „България") → **Добави метод** → изберете **Speedy Modern**
+5. Добавете/редактирайте зона (напр. „България") → **Добави метод** → изберете **Drusoft Shipping for Speedy**
 6. Въведете вашите **Спиди API данни** и натиснете **Запази промените**
 7. Синхронизирането на градове и офиси започва автоматично
 

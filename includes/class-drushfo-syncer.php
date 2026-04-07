@@ -7,7 +7,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Handles background synchronization of Speedy locations (Cities and Offices).
  */
-class Speedy_Modern_Syncer {
+class Drushfo_Syncer {
 
 	/**
 	 * Main entry point for the background job.
@@ -20,14 +20,14 @@ class Speedy_Modern_Syncer {
 
 		// Get Settings (to access API credentials)
 		// Try global settings first
-		$settings = get_option( 'woocommerce_speedy_modern_settings' );
+		$settings = get_option( 'woocommerce_drushfo_speedy_settings' );
 		$username = $settings['speedy_username'] ?? '';
 		$password = $settings['speedy_password'] ?? '';
 
 		// If not found, try to find ANY instance with credentials
 		if ( empty( $username ) || empty( $password ) ) {
 			global $wpdb;
-			$option_like = 'woocommerce_speedy_modern_%_settings';
+			$option_like = 'woocommerce_drushfo_speedy_%_settings';
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
@@ -51,7 +51,7 @@ class Speedy_Modern_Syncer {
 		if ( empty( $username ) || empty( $password ) ) {
 			// Log error: Credentials missing
 			if ( class_exists( 'WC_Logger' ) ) {
-				wc_get_logger()->error( __( 'Speedy Sync Failed: Missing credentials.', 'modern-shipping-for-speedy' ), array( 'source' => 'modern-shipping-for-speedy' ) );
+				wc_get_logger()->error( __( 'Speedy Sync Failed: Missing credentials.', 'drusoft-shipping-for-speedy' ), array( 'source' => 'drusoft-shipping-for-speedy' ) );
 			}
 			return;
 		}
@@ -83,7 +83,7 @@ class Speedy_Modern_Syncer {
 
 		if ( is_wp_error( $response ) ) {
 			if ( class_exists( 'WC_Logger' ) ) {
-				wc_get_logger()->error( __( 'Speedy Cities Sync Error: ', 'modern-shipping-for-speedy' ) . $response->get_error_message(), array( 'source' => 'modern-shipping-for-speedy' ) );
+				wc_get_logger()->error( __( 'Speedy Cities Sync Error: ', 'drusoft-shipping-for-speedy' ) . $response->get_error_message(), array( 'source' => 'drusoft-shipping-for-speedy' ) );
 			}
 			return;
 		}
@@ -97,12 +97,12 @@ class Speedy_Modern_Syncer {
 		}
 
 		// Get headers
-		$header = str_getcsv( array_shift( $lines ) );
+		$header = str_getcsv( array_shift( $lines ), ',', '"', '' );
 
-		$table_name = $wpdb->prefix . 'speedy_cities';
+		$table_name = $wpdb->prefix . 'drushfo_cities';
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$wpdb->query( "TRUNCATE TABLE {$wpdb->prefix}speedy_cities" );
+		$wpdb->query( "TRUNCATE TABLE {$wpdb->prefix}drushfo_cities" );
 
 		$count = 0;
 
@@ -111,7 +111,7 @@ class Speedy_Modern_Syncer {
 				continue;
 			}
 
-			$row = str_getcsv( $line );
+			$row = str_getcsv( $line, ',', '"', '' );
 			if ( count( $row ) !== count( $header ) ) {
 				continue;
 			}
@@ -133,7 +133,7 @@ class Speedy_Modern_Syncer {
 		}
 
 		if ( class_exists( 'WC_Logger' ) ) {
-			wc_get_logger()->info( __( 'Speedy Cities Sync Completed. Count: ', 'modern-shipping-for-speedy' ) . $count, array( 'source' => 'modern-shipping-for-speedy' ) );
+			wc_get_logger()->info( __( 'Speedy Cities Sync Completed. Count: ', 'drusoft-shipping-for-speedy' ) . $count, array( 'source' => 'drusoft-shipping-for-speedy' ) );
 		}
 	}
 
@@ -158,7 +158,7 @@ class Speedy_Modern_Syncer {
 
 		if ( is_wp_error( $response ) ) {
 			if ( class_exists( 'WC_Logger' ) ) {
-				wc_get_logger()->error( __( 'Speedy Offices Sync Error: ', 'modern-shipping-for-speedy' ) . $response->get_error_message(), array( 'source' => 'modern-shipping-for-speedy' ) );
+				wc_get_logger()->error( __( 'Speedy Offices Sync Error: ', 'drusoft-shipping-for-speedy' ) . $response->get_error_message(), array( 'source' => 'drusoft-shipping-for-speedy' ) );
 			}
 			return;
 		}
@@ -166,10 +166,10 @@ class Speedy_Modern_Syncer {
 		$data = json_decode( wp_remote_retrieve_body( $response ), true );
 
 		if ( isset( $data['offices'] ) && is_array( $data['offices'] ) ) {
-			$table_name = $wpdb->prefix . 'speedy_offices';
+			$table_name = $wpdb->prefix . 'drushfo_offices';
 			
 			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			$wpdb->query( "TRUNCATE TABLE {$wpdb->prefix}speedy_offices" );
+			$wpdb->query( "TRUNCATE TABLE {$wpdb->prefix}drushfo_offices" );
 
 			foreach ( $data['offices'] as $office ) {
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery
@@ -194,7 +194,7 @@ class Speedy_Modern_Syncer {
 			}
 
 			if ( class_exists( 'WC_Logger' ) ) {
-				wc_get_logger()->info( __( 'Speedy Offices Sync Completed. Count: ', 'modern-shipping-for-speedy' ) . count($data['offices']), array( 'source' => 'modern-shipping-for-speedy' ) );
+				wc_get_logger()->info( __( 'Speedy Offices Sync Completed. Count: ', 'drusoft-shipping-for-speedy' ) . count($data['offices']), array( 'source' => 'drusoft-shipping-for-speedy' ) );
 			}
 		}
 	}

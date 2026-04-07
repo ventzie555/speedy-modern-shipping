@@ -1,5 +1,5 @@
 /**
- * Speedy Modern – Admin Settings Script
+ * Drusoft Shipping for Speedy – Admin Settings Script
  *
  * Handles dynamic field visibility and grouping in the shipping method settings modal.
  */
@@ -152,8 +152,8 @@
 				$error.text('');
 
 				var formData = new FormData();
-				formData.append('action', 'speedy_modern_upload_file');
-				formData.append('nonce', speedy_modern_admin.nonce);
+				formData.append('action', 'drushfo_upload_file');
+				formData.append('nonce', drushfo_admin.nonce);
 				formData.append('file', file);
 
 				$.ajax({
@@ -183,10 +183,10 @@
 		}
 
 		// --- Grouping Logic ---
-		createVisualGroup( 'woocommerce_speedy_modern_free_shipping', ['free_shipping_automat', 'free_shipping_office', 'free_shipping_address'] );
-		createVisualGroup( 'woocommerce_speedy_modern_fixed_shipping', ['fixed_shipping_automat', 'fixed_shipping_office', 'fixed_shipping_address'] );
-		createVisualGroup( 'woocommerce_speedy_modern_vaucher', ['vaucherpayer', 'vaucherpayerdays'] );
-		createVisualGroup( 'woocommerce_speedy_modern_test_before_pay', ['testplatec', 'autoclose'] );
+		createVisualGroup( 'woocommerce_drushfo_speedy_free_shipping', ['free_shipping_automat', 'free_shipping_office', 'free_shipping_address'] );
+		createVisualGroup( 'woocommerce_drushfo_speedy_fixed_shipping', ['fixed_shipping_automat', 'fixed_shipping_office', 'fixed_shipping_address'] );
+		createVisualGroup( 'woocommerce_drushfo_speedy_vaucher', ['vaucherpayer', 'vaucherpayerdays'] );
+		createVisualGroup( 'woocommerce_drushfo_speedy_test_before_pay', ['testplatec', 'autoclose'] );
 
 
 		// --- Visibility Logic ---
@@ -233,21 +233,21 @@
 			}
 		}
 
-		setupCheckboxToggle( 'woocommerce_speedy_modern_free_shipping', [
+		setupCheckboxToggle( 'woocommerce_drushfo_speedy_free_shipping', [
 			'free_shipping_automat',
 			'free_shipping_office',
 			'free_shipping_address'
 		]);
 
-		setupCheckboxToggle( 'woocommerce_speedy_modern_fixed_shipping', [
+		setupCheckboxToggle( 'woocommerce_drushfo_speedy_fixed_shipping', [
 			'fixed_shipping_automat',
 			'fixed_shipping_office',
 			'fixed_shipping_address'
 		]);
 
 		var $pricingSelect = $( '[id$="cenadostavka"]' );
-		var $fixedCheckbox = $( '#woocommerce_speedy_modern_fixed_shipping' );
-		var $freeCheckbox  = $( '#woocommerce_speedy_modern_free_shipping' );
+		var $fixedCheckbox = $( '#woocommerce_drushfo_speedy_fixed_shipping' );
+		var $freeCheckbox  = $( '#woocommerce_drushfo_speedy_free_shipping' );
 
 		function updatePricingMethod() {
 			var method = $pricingSelect.val();
@@ -316,13 +316,13 @@
 					url: ajaxurl,
 					dataType: 'json',
 					delay: 250,
-					data: function (params) {
-						return {
-							action: 'speedy_modern_search_cities',
-							nonce: speedy_modern_admin.nonce,
-							term: params.term
-						};
-					},
+				data: function (params) {
+					return {
+						action: 'drushfo_search_cities',
+						nonce: drushfo_admin.nonce,
+						term: params.term
+					};
+				},
 					processResults: function (data) {
 						return data;
 					},
@@ -350,13 +350,14 @@
 					url: ajaxurl,
 					dataType: 'json',
 					delay: 250,
-					data: function (params) {
-						return {
-							action: 'speedy_modern_search_offices',
-							nonce: speedy_modern_admin.nonce,
-							term: params.term
-						};
-					},
+				data: function (params) {
+					return {
+						action: 'drushfo_search_offices',
+						nonce: drushfo_admin.nonce,
+						term: params.term,
+						exclude_automats: '1'
+					};
+				},
 					processResults: function (data) {
 						return data;
 					},

@@ -232,7 +232,7 @@
             url: params.ajax_url,
             type: 'POST',
             data: {
-                action: 'speedy_modern_save_cart_selection',
+                action: 'drushfo_save_cart_selection',
                 nonce: params.nonce,
                 state: state,
                 city_id: cityId,
@@ -263,7 +263,7 @@
             url: params.ajax_url,
             type: 'POST',
             data: {
-                action: 'speedy_get_cities',
+                action: 'drushfo_get_cities',
                 nonce: params.nonce,
                 region: stateCode
             },
@@ -364,7 +364,7 @@
 
         // Trigger the cart update directly — no separate AJAX needed.
         // The hidden fields + calc_shipping_city get submitted with the form.
-        // speedy_modern_vary_package_hash sets the session, then
+        // drushfo_speedy_vary_package_hash sets the session, then
         // calculate_shipping reads from session + POST data.
         isUpdating = true;
         cartUpdatePending = true;
@@ -506,4 +506,4 @@
         }
     }
 
-})(jQuery, window.speedy_params);
+})(jQuery, window.drushfo_params);
